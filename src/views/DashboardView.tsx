@@ -14,6 +14,10 @@ import {
 } from 'lucide-react';
 import { DashboardSummary } from '../types/inventory';
 import { inventoryApi } from '../services/api';
+import kpi1Bg from '../assets/ong.png';
+import kpi2Bg from '../assets/ong2.jpg';
+import kpi3Bg from '../assets/ong3.jpg';
+import kpi4Bg from '../assets/ong4.jpg';
 
 interface Props {
   onNavigate: (view: string) => void;
@@ -95,74 +99,118 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, onInspectItem }) =>
           {/* Key Performance Indicators Strip */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* KPI 1: Total Units */}
-            <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-2xs">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Total Tracked Units
-                </span>
-                <div className="p-2 bg-blue-50 text-[#004B87] rounded">
-                  <Boxes className="w-4 h-4" />
+            <div className="relative overflow-hidden p-5 rounded-lg border border-slate-800/80 shadow-md group">
+              {/* Full-card Photographic Background */}
+              <div
+                className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-105"
+                style={{ backgroundImage: `url(${kpi1Bg})` }}
+              />
+              {/* Semi-transparent Dark Navy/Black Contrast Overlay */}
+              <div className="absolute inset-0 bg-gradient-to-t from-[#050C18]/95 via-[#050C18]/80 to-[#050C18]/70 pointer-events-none" />
+
+              {/* Foreground Content */}
+              <div className="relative z-10">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+                    Total Tracked Units
+                  </span>
+                  <div className="p-2 bg-white/10 backdrop-blur-xs text-white rounded border border-white/15">
+                    <Boxes className="w-4 h-4 text-blue-200" />
+                  </div>
                 </div>
-              </div>
-              <div className="text-2xl font-bold font-mono tabular-nums text-slate-900">
-                {summary.totalRegisteredUnits}
-              </div>
-              <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
-                <span>Unique dual-barcode pairs</span>
+                <div className="text-2xl font-bold font-mono tabular-nums text-white drop-shadow-xs">
+                  {summary.totalRegisteredUnits}
+                </div>
+                <div className="text-[11px] text-slate-300 mt-1 flex items-center gap-1 font-medium">
+                  <span>Unique dual-barcode pairs</span>
+                </div>
               </div>
             </div>
 
             {/* KPI 2: Active Store Locations */}
-            <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-2xs">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Active Store Locations
-                </span>
-                <div className="p-2 bg-slate-100 text-slate-700 rounded">
-                  <MapPin className="w-4 h-4" />
+            <div className="relative overflow-hidden p-5 rounded-lg border border-slate-800/80 shadow-md group">
+              {/* Full-card Photographic Background */}
+              <div
+                className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-105"
+                style={{ backgroundImage: `url(${kpi2Bg})` }}
+              />
+              {/* Semi-transparent Dark Navy/Black Contrast Overlay */}
+              <div className="absolute inset-0 bg-gradient-to-t from-[#050C18]/95 via-[#050C18]/80 to-[#050C18]/70 pointer-events-none" />
+
+              {/* Foreground Content */}
+              <div className="relative z-10">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+                    Active Store Locations
+                  </span>
+                  <div className="p-2 bg-white/10 backdrop-blur-xs text-white rounded border border-white/15">
+                    <MapPin className="w-4 h-4 text-blue-200" />
+                  </div>
                 </div>
-              </div>
-              <div className="text-2xl font-bold font-mono tabular-nums text-slate-900">
-                {summary.activeStoreLocationsCount}
-              </div>
-              <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
-                <span>Storage bays, racks & labs</span>
+                <div className="text-2xl font-bold font-mono tabular-nums text-white drop-shadow-xs">
+                  {summary.activeStoreLocationsCount}
+                </div>
+                <div className="text-[11px] text-slate-300 mt-1 flex items-center gap-1 font-medium">
+                  <span>Storage bays, racks & labs</span>
+                </div>
               </div>
             </div>
 
             {/* KPI 3: Active Personnel */}
-            <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-2xs">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Active Personnel
-                </span>
-                <div className="p-2 bg-slate-100 text-slate-700 rounded">
-                  <Users className="w-4 h-4" />
+            <div className="relative overflow-hidden p-5 rounded-lg border border-slate-800/80 shadow-md group">
+              {/* Full-card Photographic Background */}
+              <div
+                className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-105"
+                style={{ backgroundImage: `url(${kpi3Bg})` }}
+              />
+              {/* Semi-transparent Dark Navy/Black Contrast Overlay */}
+              <div className="absolute inset-0 bg-gradient-to-t from-[#050C18]/95 via-[#050C18]/80 to-[#050C18]/70 pointer-events-none" />
+
+              {/* Foreground Content */}
+              <div className="relative z-10">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+                    Active Personnel
+                  </span>
+                  <div className="p-2 bg-white/10 backdrop-blur-xs text-white rounded border border-white/15">
+                    <Users className="w-4 h-4 text-blue-200" />
+                  </div>
                 </div>
-              </div>
-              <div className="text-2xl font-bold font-mono tabular-nums text-slate-900">
-                {summary.activePersonnelCount}
-              </div>
-              <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
-                <span>Technicians & supervisors</span>
+                <div className="text-2xl font-bold font-mono tabular-nums text-white drop-shadow-xs">
+                  {summary.activePersonnelCount}
+                </div>
+                <div className="text-[11px] text-slate-300 mt-1 flex items-center gap-1 font-medium">
+                  <span>Technicians & supervisors</span>
+                </div>
               </div>
             </div>
 
             {/* KPI 4: Recent Intake Activity */}
-            <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-2xs">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Intake Activity
-                </span>
-                <div className="p-2 bg-emerald-50 text-emerald-700 rounded">
-                  <Clock className="w-4 h-4" />
+            <div className="relative overflow-hidden p-5 rounded-lg border border-slate-800/80 shadow-md group">
+              {/* Full-card Photographic Background */}
+              <div
+                className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-105"
+                style={{ backgroundImage: `url(${kpi4Bg})` }}
+              />
+              {/* Semi-transparent Dark Navy/Black Contrast Overlay */}
+              <div className="absolute inset-0 bg-gradient-to-t from-[#050C18]/95 via-[#050C18]/80 to-[#050C18]/70 pointer-events-none" />
+
+              {/* Foreground Content */}
+              <div className="relative z-10">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+                    Intake Activity
+                  </span>
+                  <div className="p-2 bg-white/10 backdrop-blur-xs text-white rounded border border-white/15">
+                    <Clock className="w-4 h-4 text-emerald-300" />
+                  </div>
                 </div>
-              </div>
-              <div className="text-2xl font-bold font-mono tabular-nums text-slate-900">
-                {summary.recentlyRegisteredInventory.length}
-              </div>
-              <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
-                <span>Recent cataloged assets</span>
+                <div className="text-2xl font-bold font-mono tabular-nums text-white drop-shadow-xs">
+                  {summary.recentlyRegisteredInventory.length}
+                </div>
+                <div className="text-[11px] text-slate-300 mt-1 flex items-center gap-1 font-medium">
+                  <span>Recent cataloged assets</span>
+                </div>
               </div>
             </div>
           </div>

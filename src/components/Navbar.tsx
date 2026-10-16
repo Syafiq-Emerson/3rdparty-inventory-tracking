@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Menu, Shield, Database, Radio, Clock } from 'lucide-react';
+import emersonLogo from '../assets/emerson_logo.svg';
 
 interface Props {
   onToggleMobileSidebar: () => void;
@@ -38,10 +39,13 @@ export const Navbar: React.FC<Props> = ({ onToggleMobileSidebar, activeView }) =
           <Menu className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded bg-[#004B87] flex items-center justify-center text-white font-bold text-xs tracking-wider shadow-xs">
-            IMS
-          </div>
+        <div className="flex items-center gap-3">
+          <img
+            src={emersonLogo}
+            alt="Emerson Logo"
+            className="h-8 w-auto object-contain shrink-0"
+          />
+          <div className="h-6 w-px bg-slate-200 hidden sm:block" />
           <div className="flex flex-col">
             <span className="text-sm font-bold tracking-tight text-slate-900 leading-tight">
               Industrial Asset Inventory
