@@ -8,6 +8,7 @@ import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
 import { DashboardView } from './views/DashboardView';
 import { RegisterView } from './views/RegisterView';
+import { IssueForPackingView } from './views/IssueForPackingView';
 import { InventoryListView } from './views/InventoryListView';
 import { StoreLocationsView } from './views/StoreLocationsView';
 import { PersonnelView } from './views/PersonnelView';
@@ -39,6 +40,12 @@ export default function App() {
               // Stay on register for subsequent scans or allow navigation
             }}
             onInspectItem={handleInspectItem}
+          />
+        );
+      case 'issue':
+        return (
+          <IssueForPackingView
+            onViewInventory={() => setActiveView('inventory')}
           />
         );
       case 'inventory':

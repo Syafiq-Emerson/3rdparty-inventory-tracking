@@ -35,12 +35,12 @@ export const SystemArchitectureView: React.FC = () => {
           </p>
         </div>
 
-        <button
+        {/* <button
           onClick={handleReset}
           className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-50 transition-colors shadow-2xs"
         >
           Reset Factory Seed Data
-        </button>
+        </button> */}
       </div>
 
       {/* Stage 1 Environment Inspection Findings (Mandatory Prompt Audit) */}
@@ -67,7 +67,7 @@ export const SystemArchitectureView: React.FC = () => {
               <ul className="list-disc list-inside mt-2 space-y-1 text-slate-800 font-medium">
                 <li>The complete production ASP.NET Core 8.0 LTS C# Web API solution in <code className="font-mono bg-white px-1 py-0.5 rounded border border-amber-200">/backend/IndustrialInventory.Api/</code></li>
                 <li>The official MySQL 8.0 production DDL script with unique constraints in <code className="font-mono bg-white px-1 py-0.5 rounded border border-amber-200">/backend/schema.sql</code></li>
-                <li>The Vue 3 repository structure in <code className="font-mono bg-white px-1 py-0.5 rounded border border-amber-200">/frontend-vue/</code></li>
+                <li>The React repository structure in <code className="font-mono bg-white px-1 py-0.5 rounded border border-amber-200">/frontend-vue/</code></li>
                 <li>A functional, zero-mock client workstation running on Vite with persistent relational storage and realistic network simulation for immediate review.</li>
               </ul>
             </div>

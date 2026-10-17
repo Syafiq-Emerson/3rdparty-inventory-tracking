@@ -31,8 +31,41 @@ public record InventoryItemResponse
     public string RegisteredByPersonnelId { get; init; } = string.Empty;
     public string RegisteredByPersonnelCode { get; init; } = string.Empty;
     public string RegisteredByPersonnelName { get; init; } = string.Empty;
+    public bool IsIssued { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
+}
+
+public record InventoryItemIdentificationResponse
+{
+    public string Id { get; init; } = string.Empty;
+    public string SerialNumber { get; init; } = string.Empty;
+    public string TagNumber { get; init; } = string.Empty;
+    public string LocationId { get; init; } = string.Empty;
+    public string LocationCode { get; init; } = string.Empty;
+    public string LocationName { get; init; } = string.Empty;
+    public bool IsIssued { get; init; }
+}
+
+public record IssueInventoryRequest
+{
+    [Required(ErrorMessage = "Serial Number is required.")]
+    [StringLength(100, MinimumLength = 1, ErrorMessage = "Serial Number must be between 1 and 100 characters.")]
+    public string SerialNumber { get; init; } = string.Empty;
+
+    [Required(ErrorMessage = "Tag Number is required.")]
+    [StringLength(100, MinimumLength = 1, ErrorMessage = "Tag Number must be between 1 and 100 characters.")]
+    public string TagNumber { get; init; } = string.Empty;
+
+    [Required(ErrorMessage = "Responsible Personnel ID is required.")]
+    [StringLength(36, MinimumLength = 1, ErrorMessage = "Responsible Personnel ID must be between 1 and 36 characters.")]
+    public string PerformedByPersonnelId { get; init; } = string.Empty;
+}
+
+public record IssueInventoryResponse
+{
+    public InventoryItemIdentificationResponse Item { get; init; } = null!;
+    public InventoryMovementResponse Movement { get; init; } = null!;
 }
 
 public record DuplicateConflictResponse
@@ -50,8 +83,8 @@ public record InventoryMovementResponse
     public string InventoryItemId { get; init; } = string.Empty;
     public string? FromLocationId { get; init; }
     public string? FromLocationName { get; init; }
-    public string ToLocationId { get; init; } = string.Empty;
-    public string ToLocationName { get; init; } = string.Empty;
+    public string? ToLocationId { get; init; }
+    public string? ToLocationName { get; init; }
     public string PerformedByPersonnelId { get; init; } = string.Empty;
     public string PerformedByPersonnelName { get; init; } = string.Empty;
     public string EventType { get; init; } = string.Empty;
@@ -62,6 +95,8 @@ public record InventoryMovementResponse
 public record DashboardSummaryResponse
 {
     public int TotalRegisteredUnits { get; init; }
+    public int AvailableUnits { get; init; }
+    public int IssuedForPackingUnits { get; init; }
     public int ActiveStoreLocationsCount { get; init; }
     public int ActivePersonnelCount { get; init; }
     public List<LocationInventoryCountDto> InventoryByStoreLocation { get; init; } = new();

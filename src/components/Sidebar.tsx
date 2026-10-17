@@ -10,6 +10,7 @@ import {
   ChevronRight,
   X,
   FileCode,
+  PackageCheck,
 } from 'lucide-react';
 
 interface Props {
@@ -36,6 +37,12 @@ export const Sidebar: React.FC<Props> = ({
       id: 'register',
       label: 'Register Inventory',
       icon: Barcode,
+      badge: 'Dual Scan',
+    },
+    {
+      id: 'issue',
+      label: 'Issue for Packing',
+      icon: PackageCheck,
       badge: 'Dual Scan',
     },
     {
@@ -180,7 +187,7 @@ export const Sidebar: React.FC<Props> = ({
         </div>
 
         {/* System & Architecture */}
-        <div>
+        {/* <div>
           <div className="px-3 mb-2 text-[10px] uppercase font-mono tracking-wider text-slate-400 font-semibold">
             System & Deployment
           </div>
@@ -211,7 +218,7 @@ export const Sidebar: React.FC<Props> = ({
               );
             })}
           </nav>
-        </div>
+        </div> */}
       </div>
 
       {/* Footer Info */}

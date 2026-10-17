@@ -221,6 +221,7 @@ export const InventoryListView: React.FC<Props> = ({ onInspectItem, onNavigateTo
                     <th className="py-3 px-4">Serial Number</th>
                     <th className="py-3 px-4">Tag Number</th>
                     <th className="py-3 px-4">Store Location</th>
+                    <th className="py-3 px-4">Availability</th>
                     <th className="py-3 px-4">Responsible Personnel</th>
                     <th className="py-3 px-4">Registration Date</th>
                     <th className="py-3 px-4 text-right">Actions</th>
@@ -250,6 +251,21 @@ export const InventoryListView: React.FC<Props> = ({ onInspectItem, onNavigateTo
                         <div className="font-mono text-[11px] text-slate-400">
                           {item.locationCode}
                         </div>
+                      </td>
+
+                      {/* Availability */}
+                      <td className="py-3 px-4">
+                        <span
+                          role="status"
+                          aria-label={`Availability: ${item.isIssued ? 'Issued for packing' : 'Available'}`}
+                          className={`inline-flex whitespace-nowrap rounded px-2 py-1 text-[10px] font-semibold ${
+                            item.isIssued
+                              ? 'bg-amber-100 text-amber-900'
+                              : 'bg-emerald-100 text-emerald-900'
+                          }`}
+                        >
+                          {item.isIssued ? 'Issued for packing' : 'Available'}
+                        </span>
                       </td>
 
                       {/* Registered By Personnel */}

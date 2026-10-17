@@ -34,8 +34,19 @@ export interface InventoryItem {
   registeredByPersonnelId: string;
   registeredByPersonnelCode: string;
   registeredByPersonnelName: string;
+  isIssued: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface InventoryItemIdentification {
+  id: string;
+  serialNumber: string;
+  tagNumber: string;
+  locationId: string;
+  locationCode: string;
+  locationName: string;
+  isIssued: boolean;
 }
 
 export interface InventoryMovement {
@@ -43,12 +54,23 @@ export interface InventoryMovement {
   inventoryItemId: string;
   fromLocationId: string | null;
   fromLocationName: string | null;
-  toLocationId: string;
-  toLocationName: string;
+  toLocationId: string | null;
+  toLocationName: string | null;
   performedByPersonnelId: string;
   performedByPersonnelName: string;
-  eventType: 'INITIAL_REGISTRATION' | 'TRANSFER' | 'AUDIT';
+  eventType: string;
   movedAt: string;
+}
+
+export interface IssueInventoryPayload {
+  serialNumber: string;
+  tagNumber: string;
+  performedByPersonnelId: string;
+}
+
+export interface IssueInventoryResponse {
+  item: InventoryItemIdentification;
+  movement: InventoryMovement;
 }
 
 export interface RegisterInventoryPayload {
@@ -76,6 +98,8 @@ export interface LocationInventoryCount {
 
 export interface DashboardSummary {
   totalRegisteredUnits: number;
+  availableUnits: number;
+  issuedForPackingUnits: number;
   activeStoreLocationsCount: number;
   activePersonnelCount: number;
   inventoryByStoreLocation: LocationInventoryCount[];

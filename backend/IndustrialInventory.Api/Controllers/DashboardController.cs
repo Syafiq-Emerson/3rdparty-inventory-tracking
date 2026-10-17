@@ -21,6 +21,8 @@ public class DashboardController : ControllerBase
     public async Task<ActionResult<DashboardSummaryResponse>> GetSummary()
     {
         var totalUnits = await _context.InventoryItems.CountAsync();
+        var availableUnits = await _context.InventoryItems.CountAsync(i => !i.IsIssued);
+        var issuedForPackingUnits = await _context.InventoryItems.CountAsync(i => i.IsIssued);
         var activeLocationsCount = await _context.StoreLocations.CountAsync(l => l.IsActive);
         var activePersonnelCount = await _context.Personnel.CountAsync(p => p.IsActive);
 
@@ -32,7 +34,7 @@ public class DashboardController : ControllerBase
                 LocationCode = l.LocationCode,
                 LocationName = l.LocationName,
                 IsActive = l.IsActive,
-                ItemCount = l.InventoryItems.Count
+                ItemCount = l.InventoryItems.Count(i => !i.IsIssued)
             })
             .OrderByDescending(l => l.ItemCount)
             .ToListAsync();
@@ -54,6 +56,7 @@ public class DashboardController : ControllerBase
                 RegisteredByPersonnelId = i.RegisteredByPersonnelId,
                 RegisteredByPersonnelCode = i.RegisteredByPersonnel.PersonnelCode,
                 RegisteredByPersonnelName = i.RegisteredByPersonnel.Name,
+                IsIssued = i.IsIssued,
                 CreatedAt = i.CreatedAt,
                 UpdatedAt = i.UpdatedAt
             })
@@ -62,6 +65,8 @@ public class DashboardController : ControllerBase
         return Ok(new DashboardSummaryResponse
         {
             TotalRegisteredUnits = totalUnits,
+            AvailableUnits = availableUnits,
+            IssuedForPackingUnits = issuedForPackingUnits,
             ActiveStoreLocationsCount = activeLocationsCount,
             ActivePersonnelCount = activePersonnelCount,
             InventoryByStoreLocation = locations,

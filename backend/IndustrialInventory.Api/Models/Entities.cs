@@ -102,6 +102,9 @@ public class InventoryItem
     [ForeignKey(nameof(RegisteredByPersonnelId))]
     public virtual Personnel RegisteredByPersonnel { get; set; } = null!;
 
+    [Column("is_issued")]
+    public bool IsIssued { get; set; } = false;
+
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
@@ -135,13 +138,12 @@ public class InventoryMovement
     [ForeignKey(nameof(FromLocationId))]
     public virtual StoreLocation? FromLocation { get; set; }
 
-    [Required]
     [Column("to_location_id")]
     [MaxLength(36)]
-    public string ToLocationId { get; set; } = string.Empty;
+    public string? ToLocationId { get; set; }
 
     [ForeignKey(nameof(ToLocationId))]
-    public virtual StoreLocation ToLocation { get; set; } = null!;
+    public virtual StoreLocation? ToLocation { get; set; }
 
     [Required]
     [Column("performed_by_personnel_id")]

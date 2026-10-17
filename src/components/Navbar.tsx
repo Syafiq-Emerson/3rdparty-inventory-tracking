@@ -48,7 +48,7 @@ export const Navbar: React.FC<Props> = ({ onToggleMobileSidebar, activeView }) =
           <div className="h-6 w-px bg-slate-200 hidden sm:block" />
           <div className="flex flex-col">
             <span className="text-sm font-bold tracking-tight text-slate-900 leading-tight">
-              Industrial Asset Inventory
+              Department of Third Party Inspection - Industrial Asset Inventory
             </span>
             <span className="text-[11px] text-slate-500 hidden sm:inline">
               Precision Asset Custody & Dual-Barcode Ledger

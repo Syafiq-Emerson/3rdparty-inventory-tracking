@@ -119,6 +119,15 @@ export const ItemDetailModal: React.FC<Props> = ({ itemId, onClose }) => {
 
                 <div className="flex items-center justify-between px-4 py-3">
                   <span className="text-slate-500 flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-slate-400" /> Availability
+                  </span>
+                  <span className={`rounded px-2 py-1 text-xs font-semibold ${item.isIssued ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'}`}>
+                    {item.isIssued ? 'Issued for packing' : 'Available'}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between px-4 py-3">
+                  <span className="text-slate-500 flex items-center gap-2">
                     <User className="w-4 h-4 text-slate-400" /> Registered By Technician
                   </span>
                   <span className="font-medium text-slate-900">
@@ -157,11 +166,11 @@ export const ItemDetailModal: React.FC<Props> = ({ itemId, onClose }) => {
                       <div key={movement.id} className="p-3 bg-white hover:bg-slate-50 transition-colors">
                         <div className="flex items-center justify-between mb-1.5">
                           <span className="font-semibold text-slate-900 flex items-center gap-1.5">
-                            {movement.eventType === 'INITIAL_REGISTRATION' ? (
-                              <span className="text-blue-800 font-medium">Initial Registration & Intake</span>
-                            ) : (
-                              <span>Location Relocation</span>
-                            )}
+                            {movement.eventType === 'INITIAL_REGISTRATION'
+                              ? <span className="text-blue-800 font-medium">Initial Registration & Intake</span>
+                              : movement.eventType === 'ISSUE_FOR_PACKING'
+                                ? <span className="text-amber-800 font-medium">Issued for Packing</span>
+                                : <span>Location Relocation</span>}
                           </span>
                           <span className="text-slate-500 font-mono tabular-nums">
                             {new Date(movement.movedAt).toLocaleString()}
@@ -169,11 +178,17 @@ export const ItemDetailModal: React.FC<Props> = ({ itemId, onClose }) => {
                         </div>
 
                         <div className="flex items-center gap-2 text-slate-600">
-                          {movement.fromLocationName ? (
+                          {movement.eventType === 'ISSUE_FOR_PACKING' ? (
+                            <>
+                              <span>{movement.fromLocationName ?? 'Warehouse location'}</span>
+                              <ArrowRight className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                              <span className="font-medium text-amber-900">Packing (issued)</span>
+                            </>
+                          ) : movement.fromLocationName ? (
                             <>
                               <span>{movement.fromLocationName}</span>
                               <ArrowRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                              <span className="font-medium text-slate-900">{movement.toLocationName}</span>
+                              <span className="font-medium text-slate-900">{movement.toLocationName ?? 'Unknown destination'}</span>
                             </>
                           ) : (
                             <span>

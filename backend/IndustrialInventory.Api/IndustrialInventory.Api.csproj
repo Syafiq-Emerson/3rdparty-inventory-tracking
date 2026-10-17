@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>IndustrialInventory.Api</RootNamespace>
     <AssemblyName>IndustrialInventory.Api</AssemblyName>
+    <UserSecretsId>6a5450ea-d232-4e15-a46e-9c5f80c480ca</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

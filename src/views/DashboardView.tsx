@@ -112,17 +112,17 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, onInspectItem }) =>
               <div className="relative z-10">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
-                    Total Tracked Units
+                    Total Items in Storage
                   </span>
                   <div className="p-2 bg-white/10 backdrop-blur-xs text-white rounded border border-white/15">
                     <Boxes className="w-4 h-4 text-blue-200" />
                   </div>
                 </div>
                 <div className="text-2xl font-bold font-mono tabular-nums text-white drop-shadow-xs">
-                  {summary.totalRegisteredUnits}
+                  {summary.availableUnits}
                 </div>
                 <div className="text-[11px] text-slate-300 mt-1 flex items-center gap-1 font-medium">
-                  <span>Unique dual-barcode pairs</span>
+                  <span>Available physical assets in storage</span>
                 </div>
               </div>
             </div>
@@ -370,6 +370,7 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, onInspectItem }) =>
                     <th className="py-2.5 px-4">Serial Number</th>
                     <th className="py-2.5 px-4">Tag Number</th>
                     <th className="py-2.5 px-4">Store Location</th>
+                    <th className="py-2.5 px-4">Availability</th>
                     <th className="py-2.5 px-4">Registered By</th>
                     <th className="py-2.5 px-4">Registration Date</th>
                     <th className="py-2.5 px-4 text-right">Action</th>
@@ -378,7 +379,7 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, onInspectItem }) =>
                 <tbody className="divide-y divide-slate-100">
                   {summary.recentlyRegisteredInventory.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-slate-400">
+                      <td colSpan={7} className="py-8 text-center text-slate-400">
                         No registered inventory items yet.
                       </td>
                     </tr>
@@ -397,6 +398,11 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, onInspectItem }) =>
                         <td className="py-2.5 px-4 text-slate-700">
                           <span className="font-semibold">{item.locationName}</span>{' '}
                           <span className="text-slate-400 font-mono">[{item.locationCode}]</span>
+                        </td>
+                        <td className="py-2.5 px-4">
+                          <span className={`rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${item.isIssued ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'}`}>
+                            {item.isIssued ? 'Issued for packing' : 'Available'}
+                          </span>
                         </td>
                         <td className="py-2.5 px-4 text-slate-600">
                           {item.registeredByPersonnelName}

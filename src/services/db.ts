@@ -122,6 +122,7 @@ const INITIAL_ITEMS: InventoryItem[] = [
     registeredByPersonnelId: 'per-001',
     registeredByPersonnelCode: 'EMP-1042',
     registeredByPersonnelName: 'Marcus Vance (Lead Instrumentation Tech)',
+    isIssued: false,
     createdAt: '2026-10-10T09:24:12.000Z',
     updatedAt: '2026-10-10T09:24:12.000Z',
   },
@@ -135,6 +136,7 @@ const INITIAL_ITEMS: InventoryItem[] = [
     registeredByPersonnelId: 'per-002',
     registeredByPersonnelCode: 'EMP-1189',
     registeredByPersonnelName: 'Elena Rostova (QA & Compliance Specialist)',
+    isIssued: false,
     createdAt: '2026-10-11T14:15:30.000Z',
     updatedAt: '2026-10-11T14:15:30.000Z',
   },
@@ -148,6 +150,7 @@ const INITIAL_ITEMS: InventoryItem[] = [
     registeredByPersonnelId: 'per-004',
     registeredByPersonnelCode: 'EMP-3120',
     registeredByPersonnelName: 'Sarah Jenkins (Calibration Engineer)',
+    isIssued: false,
     createdAt: '2026-10-12T11:05:44.000Z',
     updatedAt: '2026-10-12T11:05:44.000Z',
   },
@@ -161,6 +164,7 @@ const INITIAL_ITEMS: InventoryItem[] = [
     registeredByPersonnelId: 'per-003',
     registeredByPersonnelCode: 'EMP-2055',
     registeredByPersonnelName: 'David Kim (Materials Handling Supervisor)',
+    isIssued: false,
     createdAt: '2026-10-14T16:40:10.000Z',
     updatedAt: '2026-10-14T16:40:10.000Z',
   },
@@ -174,6 +178,7 @@ const INITIAL_ITEMS: InventoryItem[] = [
     registeredByPersonnelId: 'per-001',
     registeredByPersonnelCode: 'EMP-1042',
     registeredByPersonnelName: 'Marcus Vance (Lead Instrumentation Tech)',
+    isIssued: false,
     createdAt: '2026-10-15T08:12:00.000Z',
     updatedAt: '2026-10-15T08:12:00.000Z',
   },
@@ -426,7 +431,11 @@ class IndustrialDatabaseEngine {
   // --- Inventory Items ---
   public getItems(locationId?: string): InventoryItem[] {
     const raw = localStorage.getItem(STORAGE_KEYS.ITEMS);
-    const items: InventoryItem[] = raw ? JSON.parse(raw) : INITIAL_ITEMS;
+    const storedItems: InventoryItem[] = raw ? JSON.parse(raw) : INITIAL_ITEMS;
+    const items = storedItems.map((item) => ({
+      ...item,
+      isIssued: item.isIssued ?? false,
+    }));
 
     if (locationId) {
       return items.filter((i) => i.locationId === locationId);
@@ -516,6 +525,7 @@ class IndustrialDatabaseEngine {
       registeredByPersonnelId: personnel.id,
       registeredByPersonnelCode: personnel.personnelCode,
       registeredByPersonnelName: personnel.name,
+      isIssued: false,
       createdAt: now,
       updatedAt: now,
     };
@@ -567,7 +577,7 @@ class IndustrialDatabaseEngine {
       locationId: loc.id,
       locationCode: loc.locationCode,
       locationName: loc.locationName,
-      itemCount: items.filter((i) => i.locationId === loc.id).length,
+      itemCount: items.filter((i) => i.locationId === loc.id && !i.isIssued).length,
       isActive: loc.isActive,
     })).sort((a, b) => b.itemCount - a.itemCount);
 
@@ -575,6 +585,8 @@ class IndustrialDatabaseEngine {
 
     return {
       totalRegisteredUnits: items.length,
+      availableUnits: items.filter((item) => !item.isIssued).length,
+      issuedForPackingUnits: items.filter((item) => item.isIssued).length,
       activeStoreLocationsCount,
       activePersonnelCount,
       inventoryByStoreLocation: locationDistribution,

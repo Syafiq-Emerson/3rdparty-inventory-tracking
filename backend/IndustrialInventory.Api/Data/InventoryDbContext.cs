@@ -50,6 +50,7 @@ public class InventoryDbContext : DbContext
 
             entity.Property(e => e.SerialNumber).IsRequired().HasMaxLength(100);
             entity.Property(e => e.TagNumber).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.IsIssued).IsRequired().HasDefaultValue(false);
 
             entity.HasOne(d => d.Location)
                 .WithMany(p => p.InventoryItems)
@@ -87,6 +88,7 @@ public class InventoryDbContext : DbContext
             entity.HasOne(d => d.ToLocation)
                 .WithMany(p => p.MovementsTo)
                 .HasForeignKey(d => d.ToLocationId)
+                .IsRequired(false)
                 .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("fk_movements_to_location");
 
