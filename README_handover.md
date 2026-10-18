@@ -15,6 +15,27 @@ locations, personnel, and inventory movements.
 Install or obtain access to Git, Node.js and npm, the .NET 8 SDK, MySQL
 Server 8.x, and MySQL Workbench or the MySQL command-line client.
 
+## Database Setup vs. Normal Startup
+
+Database initialization and application startup are separate tasks.
+
+### First-time setup
+
+1. Confirm the approved MySQL server and target environment with IT.
+2. Create the database schema using the appropriate SQL script.
+3. Create or obtain a dedicated `inventory_app` account with only the database permissions required by the application.
+4. Configure the backend connection string using the approved configuration method.
+5. Verify the database tables and test the API connection before launching the frontend.
+
+### Normal startup
+
+1. Ensure the MySQL service is running and the configured database is available.
+2. Start the backend API in the intended environment.
+3. Verify the dashboard API endpoint responds successfully.
+4. Start the frontend and confirm the dashboard loads.
+
+**Do not import the schema every time the application starts.** Schema creation is a first-time setup task, not part of normal startup. Do not drop or recreate an existing database to troubleshoot a connection problem.
+
 ## First-time setup
 
 ### 1. Clone the repository
@@ -61,6 +82,24 @@ and `store_locations`.
 
 If `mysql` is not recognized, use the MySQL command-line client from its
 installed `bin` directory or configure that directory in `PATH`.
+
+#### Safely test schema creation
+
+To verify schema creation without touching the working database:
+
+1. Make a temporary copy of the selected SQL script.
+2. Change the database name in that copy to a separate test name, such as `industrial_inventory_schema_test`, including any `CREATE DATABASE` and `USE` statements.
+3. Review the edited script to ensure it targets only the test database.
+4. Import the temporary script.
+5. Verify its tables:
+
+```powershell
+mysql -u root -p -D industrial_inventory_schema_test -e "SHOW TABLES;"
+```
+
+The temporary database name must be changed inside the script. Merely specifying a database on the command line does not override a `CREATE DATABASE` or `USE` statement in the script.
+
+**Do not use the working `industrial_inventory` database for this test.** Do not drop or recreate a database containing data you need to retain.
 
 ### 3. Confirm the application database account
 
