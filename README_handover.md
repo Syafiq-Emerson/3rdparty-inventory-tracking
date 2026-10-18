@@ -1,175 +1,195 @@
 # Industrial Inventory Management System
 
-A web application for registering and tracking industrial inventory,
-store locations, personnel, and inventory movements. Inventory records
-are identified by a **Serial Number** and a **Tag Number**.
+Web application for registering and tracking industrial assets, store
+locations, personnel, and inventory movements.
 
-## Technology Stack
+## Technology
 
--   **Frontend:** React, TypeScript, Vite, Tailwind CSS
--   **Backend:** ASP.NET Core 8 Web API
--   **Database:** MySQL 8.x
--   **Data access:** Entity Framework Core 8 with the Pomelo MySQL
-    provider
-
-## Main Features
-
--   Register inventory with Serial Number, Tag Number, store location,
-    and registering personnel.
--   Prevent duplicate Serial Numbers and Tag Numbers.
--   View dashboard totals, recent registrations, and inventory by
-    location.
--   Search and filter the inventory catalog.
--   View inventory details and movement history.
--   Manage store locations and personnel.
--   Scan barcodes using a compatible USB/Bluetooth scanner; camera
-    scanning is available in the UI where supported by the device and
-    browser.
-
-## Repository Layout
-
-``` text
-.
-├── backend/
-│   ├── schema.dev.sql
-│   ├── schema.sql
-│   └── IndustrialInventory.Api/
-│       ├── Controllers/
-│       ├── Data/
-│       ├── Models/
-│       ├── DTOs/
-│       ├── Program.cs
-│       └── IndustrialInventory.Api.csproj
-├── src/
-│   ├── components/
-│   ├── services/
-│   ├── views/
-│   ├── types/
-│   └── App.tsx
-├── package.json
-└── README.md
-```
+-   Frontend: React, TypeScript, Vite, Tailwind CSS
+-   Backend: ASP.NET Core 8 Web API
+-   Database: MySQL 8.x
+-   Data access: Entity Framework Core 8 with Pomelo MySQL provider
 
 ## Prerequisites
 
-Install or obtain access to:
+Install or obtain access to Git, Node.js and npm, the .NET 8 SDK, MySQL
+Server 8.x, and MySQL Workbench or the MySQL command-line client.
 
--   Git
--   Node.js and npm
--   .NET 8 SDK
--   MySQL Server 8.x
--   MySQL Workbench or the MySQL command-line client
+## First-time setup
 
-## 1. Clone the Repository
+### 1. Clone the repository
 
-``` bash
+``` powershell
 git clone <REPOSITORY_URL>
 cd 3rdparty-inventory-tracking
 ```
 
 Replace `<REPOSITORY_URL>` with the approved repository URL.
 
-## 2. Prepare the Database
+### 2. Create the database schema
 
-The application database is named `industrial_inventory`.
+The database is named `industrial_inventory`.
 
-Two SQL scripts are provided:
+-   `backend/schema.dev.sql`: creates the database and tables without
+    sample application records. Use for a clean local setup.
+-   `backend/schema.sql`: includes sample records. Review those records
+    and obtain approval before using this script in a company
+    environment.
 
--   **`backend/schema.dev.sql`** --- creates the database and tables
-    without sample application records. Use this for a clean development
-    setup.
--   **`backend/schema.sql`** --- creates the database and tables and
-    inserts sample records. Review the sample data and obtain IT
-    approval before using this script in a company environment.
+Confirm the target server and back up any database that could be
+affected before importing a script. Do not run scripts against an
+existing company database without review.
 
-Before importing a script:
-
-1.  Confirm the target MySQL server and environment with IT.
-2.  Back up any existing database that could be affected.
-3.  Import the selected script into the intended MySQL server using
-    MySQL Workbench or the command line.
-4.  Create a dedicated application database account with only the
-    permissions required by the application.
-
-Example command, run from the repository root:
-
-``` bash
-mysql -u <DB_ADMIN_USER> -p < backend/schema.dev.sql
-```
-
-Replace `<DB_ADMIN_USER>` with an authorized MySQL administrator
-account. Enter the password at the prompt; do not put it in the command.
-
-**Important:** The application does not automatically create or migrate
-the database schema at startup. Prepare the schema separately before
-starting the API. Do not run either script against an existing company
-database without reviewing its effects.
-
-## 3. Configure the Backend
-
-The API reads its database connection string from the
-`ConnectionStrings:DefaultConnection` configuration key.
-
-For local development, configure it using .NET User Secrets from the API
-project directory:
+From the repository root, import the empty development schema in
+PowerShell:
 
 ``` powershell
-cd backend/IndustrialInventory.Api
-dotnet user-secrets init
-dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=<MYSQL_HOST>;Port=3306;Database=industrial_inventory;User=<APP_DB_USER>;Password=<APP_DB_PASSWORD>"
+cmd /c "mysql -u root -p < backend\schema.dev.sql"
 ```
 
-Replace the placeholders with values supplied or approved by IT. If User
-Secrets are already initialized, do not initialize them again.
+Enter the MySQL root password when prompted. `root` is used for database
+setup only, not for the application's normal database connection.
 
-For a company deployment, use the organization's approved
-secret-management or environment-specific configuration process. Do not
-commit real credentials to Git or put passwords in this README.
+Verify the tables:
 
-## 4. Start the Backend API
+``` powershell
+mysql -u root -p -D industrial_inventory -e "SHOW TABLES;"
+```
+
+Expected tables: `inventory_items`, `inventory_movements`, `personnel`,
+and `store_locations`.
+
+If `mysql` is not recognized, use the MySQL command-line client from its
+installed `bin` directory or configure that directory in `PATH`.
+
+### 3. Confirm the application database account
+
+The API should connect using a dedicated MySQL account such as
+`inventory_app`, not `root`.
+
+Check whether it exists by signing in to MySQL as an administrator and
+running:
+
+``` sql
+SELECT User, Host
+FROM mysql.user
+WHERE User = 'inventory_app';
+```
+
+If the account is missing, ask the database administrator to create it
+and grant only the permissions required on `industrial_inventory`. Do
+not grant global administrator privileges to the application account.
+
+### 4. Configure the backend connection string
+
+The API reads `ConnectionStrings:DefaultConnection`. For local
+development, configure it with .NET User Secrets.
 
 From the repository root:
 
 ``` powershell
+cd .\backend\IndustrialInventory.Api
+dotnet user-secrets init
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=localhost;Port=3306;Database=industrial_inventory;User=inventory_app;Password=YOUR_INVENTORY_APP_PASSWORD"
+```
+
+Replace `YOUR_INVENTORY_APP_PASSWORD` with the actual `inventory_app`
+password; do not type the placeholder literally. If
+`dotnet user-secrets init` reports that a User Secrets ID already
+exists, skip that command and run `dotnet user-secrets set`.
+
+Confirm the setting exists:
+
+``` powershell
+dotnet user-secrets list
+```
+
+This command displays the secret value. Do not share its output or
+include it in screenshots.
+
+**Important:** ASP.NET Core's standard configuration loads User Secrets
+in the Development environment, not Production. Confirm that
+`Program.cs` uses the standard configuration providers before relying on
+this behavior.
+
+### 5. Start the backend API
+
+Stop any older instance before restarting. If port `5000` is already in
+use, identify the process:
+
+``` powershell
+netstat -ano | findstr :5000
+Get-Process -Id <PID>
+```
+
+Replace `<PID>` with the process ID shown by `netstat`. Stop it only
+after confirming it is the old instance of this application:
+
+``` powershell
+Stop-Process -Id <PID>
+```
+
+From the repository root, start the backend in Development mode:
+
+``` powershell
+$env:ASPNETCORE_ENVIRONMENT = "Development"
 dotnet run --project .\backend\IndustrialInventory.Api
 ```
 
-Check the terminal output for the actual API URL and port. The API's
-Swagger UI is configured for Development mode; its URL depends on the
-active launch settings.
+Keep this terminal open. Confirm that output says
+`Hosting environment: Development` and shows the API listening URL. The
+environment variable applies to this PowerShell session; set it again in
+a new session when needed.
 
-## 5. Start the Frontend
+### 6. Test the backend before starting the frontend
 
-Open a second terminal at the repository root:
+Open a second PowerShell terminal:
+
+``` powershell
+Invoke-RestMethod http://localhost:5000/api/Dashboard/summary
+```
+
+Proceed when this returns a dashboard summary. If it returns HTTP 500,
+inspect the backend terminal for the underlying exception. If it cannot
+connect, confirm the actual API URL and port.
+
+### 7. Start the frontend
+
+Open a third terminal at the repository root:
 
 ``` powershell
 npm install
 npm run dev
 ```
 
-Open the URL printed by Vite in the terminal. Confirm that the frontend
-API configuration points to the backend URL and that the backend CORS
-allowlist permits the frontend origin.
+Open the URL printed by Vite.
 
-For a production deployment, IT should configure the frontend API
-address, hosting, HTTPS, and CORS according to the target environment
-rather than relying on local development URLs.
+If the frontend shows `Failed to fetch`, verify in this order:
 
-## 6. Verify the Installation
+1.  The backend is still running.
+2.  The direct dashboard API test succeeds.
+3.  The frontend API configuration points to the actual backend URL.
+4.  The backend CORS allowlist includes the frontend origin.
+5.  Frontend and backend use compatible HTTP/HTTPS URLs.
 
--   [ ] MySQL is running and the `industrial_inventory` schema is
-    prepared.
--   [ ] The API starts without database connection errors.
--   [ ] The frontend loads in a browser.
--   [ ] Dashboard data is retrieved from the API.
--   [ ] Inventory can be registered and appears in the inventory
-    catalog.
--   [ ] Duplicate identifiers are rejected.
--   [ ] Locations and personnel can be viewed and managed.
--   [ ] Inventory details and movement history can be viewed.
--   [ ] Data remains in the database after restarting the API.
+Do not change CORS or HTTPS settings until the failing URL and error are
+known.
 
-## API Endpoints
+## Verification checklist
+
+-   [ ] MySQL is running.
+-   [ ] The database and four tables exist.
+-   [ ] `inventory_app` exists and has the required database
+    permissions.
+-   [ ] The connection string is stored outside source control.
+-   [ ] The backend starts without database errors.
+-   [ ] `/api/Dashboard/summary` returns a response.
+-   [ ] The frontend loads and retrieves dashboard data.
+-   [ ] Inventory registration, search, location/personnel management,
+    and movement history work.
+-   [ ] Data persists after restarting the API.
+
+## API endpoints
 
   -------------------------------------------------------------------------------
   Method                  Endpoint                        Purpose
@@ -179,19 +199,16 @@ rather than relying on local development URLs.
   GET / POST              `/api/inventory`                List inventory /
                                                           register an item
 
-  GET                     `/api/inventory/{id}`           Retrieve an inventory
-                                                          item
+  GET                     `/api/inventory/{id}`           Retrieve an item
 
   GET                     `/api/inventory/search`         Search inventory
 
-  GET                     `/api/inventory/{id}/history`   Retrieve movement
-                                                          history
+  GET                     `/api/inventory/{id}/history`   Movement history
 
-  GET / POST              `/api/locations`                List / create store
-                                                          locations
+  GET / POST              `/api/locations`                List / create locations
 
   PUT / PATCH             `/api/locations/{id}`           Update a location /
-                                                          change its status
+                                                          change status
 
   GET / POST              `/api/personnel`                List / create personnel
 
@@ -199,32 +216,26 @@ rather than relying on local development URLs.
                                                           change status
   -------------------------------------------------------------------------------
 
-## Security and Handover Notes
+## Security and handover
 
--   **Do not share or commit the MySQL `root` password as part of the
-    project handover.** IT should use its approved administrator
-    credentials.
--   IT should create or assign an application-specific database account.
-    The existing local `inventory_app` password does not need to be
-    reused.
--   Share secrets only through an approved secure channel or secret
-    manager.
--   Confirm whether any existing inventory data must be migrated; SQL
-    scripts and Git source code are not a substitute for a database
-    backup or data export.
--   Review sample records in `schema.sql` before use.
--   Confirm the database host, API URL, frontend URL, CORS origins,
-    HTTPS setup, backups, and operational ownership with IT.
--   Test the setup on a clean machine or environment before accepting
-    the handover.
+-   Do not put database passwords in this README, source code,
+    screenshots, or Git.
+-   Do not hand over the MySQL `root` password as a routine project
+    credential. IT should use its approved administrator access.
+-   IT should create or assign a dedicated application account and
+    provide its credentials through an approved secure channel.
+-   Git contains source code and schema scripts, not a backup of the
+    live database or its records.
+-   Review sample records in `schema.sql` before using them.
+-   Confirm the approved database host, API/frontend URLs, CORS origins,
+    HTTPS, backup process, and operational ownership with IT.
+-   Test these instructions on a clean machine or environment before
+    handover.
 
-## Known Setup Notes
+## Notes
 
 -   The backend uses MySQL, not Microsoft SQL Server.
--   The API connection string is read from
-    `ConnectionStrings:DefaultConnection`.
--   Database schema setup is a separate step; startup migrations are not
-    currently enabled in `Program.cs`.
--   The actual frontend and API URLs should be taken from their runtime
-    output or approved deployment configuration, not assumed from this
-    README.
+-   Database schema creation is separate; automatic startup migrations
+    are not enabled in the current `Program.cs`.
+-   Confirm actual ports and URLs from runtime output and project
+    configuration. Development URLs are not production URLs.
