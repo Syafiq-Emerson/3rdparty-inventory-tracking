@@ -1,50 +1,26 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { X, MapPin, User, Calendar, Hash, Clock, ShieldCheck, ArrowRight } from 'lucide-react';
-import { InventoryItem, InventoryMovement } from '../types/inventory';
 import { inventoryApi } from '../services/api';
+import { useAsync } from '../hooks/useAsync';
 
 interface Props {
   itemId: string | null;
   onClose: () => void;
 }
 
-export const ItemDetailModal: React.FC<Props> = ({ itemId, onClose }) => {
-  const [item, setItem] = useState<InventoryItem | null>(null);
-  const [history, setHistory] = useState<InventoryMovement[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+const loadItem = (itemId: string) =>
+  Promise.all([inventoryApi.getInventoryById(itemId), inventoryApi.getInventoryHistory(itemId)]).then(
+    ([item, history]) => ({ item, history }),
+  );
 
-  useEffect(() => {
-    if (!itemId) return;
+/** Keyed by item, so opening another item always starts from a clean load. */
+export const ItemDetailModal: React.FC<Props> = ({ itemId, onClose }) =>
+  itemId ? <ItemDetailDialog key={itemId} itemId={itemId} onClose={onClose} /> : null;
 
-    let isMounted = true;
-    setLoading(true);
-    setError(null);
-
-    Promise.all([
-      inventoryApi.getInventoryById(itemId),
-      inventoryApi.getInventoryHistory(itemId),
-    ])
-      .then(([itemData, historyData]) => {
-        if (isMounted) {
-          setItem(itemData);
-          setHistory(historyData);
-          setLoading(false);
-        }
-      })
-      .catch((err) => {
-        if (isMounted) {
-          setError(err.message || 'Failed to load item specifications.');
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [itemId]);
-
-  if (!itemId) return null;
+const ItemDetailDialog: React.FC<{ itemId: string; onClose: () => void }> = ({ itemId, onClose }) => {
+  const { data, loading, error } = useAsync(loadItem, itemId, 'Failed to load item specifications.');
+  const item = data?.item ?? null;
+  const history = data?.history ?? [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">

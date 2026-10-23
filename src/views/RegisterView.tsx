@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from 'react';
 import {
   Barcode,
   Camera,
@@ -7,35 +7,26 @@ import {
   ArrowLeftRight,
   RefreshCw,
   Building2,
-  UserCheck,
   RotateCcw,
   Radio,
   SlidersHorizontal,
   Info,
 } from 'lucide-react';
-import {
-  StoreLocation,
-  Personnel,
-  InventoryItem,
-  DuplicateConflictError,
-  ScanClassificationResult,
-} from '../types/inventory';
-import { inventoryApi } from '../services/api';
-import {
-  HandheldScannerListener,
-  classifyBarcode,
-  defaultClassificationRules,
-  ClassificationRules,
-} from '../services/scanner';
-import { CameraScannerModal } from '../components/CameraScannerModal';
+import { StoreLocation, Personnel, InventoryItem, DuplicateConflictError } from '../types/inventory';
+import { errorMessage, inventoryApi, isDuplicateConflictError } from '../services/api';
+import { HandheldScannerListener, defaultClassificationRules, placeScan, ScanTone } from '../services/scanner';
 import { DuplicateConflictModal } from '../components/DuplicateConflictModal';
 
+// The camera decoder is large; load it only when someone opens the scanner.
+const CameraScannerModal = lazy(() => import('../components/CameraScannerModal'));
+
+const NOTIFICATION_MS = 4000;
+
 interface Props {
-  onSuccess: (newItem: InventoryItem) => void;
   onInspectItem: (itemId: string) => void;
 }
 
-export const RegisterView: React.FC<Props> = ({ onSuccess, onInspectItem }) => {
+export const RegisterView: React.FC<Props> = ({ onInspectItem }) => {
   // Form State (4 Mandatory Fields)
   const [serialNumber, setSerialNumber] = useState<string>('');
   const [tagNumber, setTagNumber] = useState<string>('');
@@ -53,152 +44,60 @@ export const RegisterView: React.FC<Props> = ({ onSuccess, onInspectItem }) => {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [registeredSuccessItem, setRegisteredSuccessItem] = useState<InventoryItem | null>(null);
-
-  // Scanner Feedback & Audio/Visual notifications
-  const [scannerNotification, setScannerNotification] = useState<{
-    text: string;
-    type: 'success' | 'warning' | 'info';
-  } | null>(null);
-
-  // Classification Rules Settings Drawer/Toggle
-  const [rules, setRules] = useState<ClassificationRules>(defaultClassificationRules);
+  const [scannerNotification, setScannerNotification] = useState<{ text: string; type: ScanTone } | null>(null);
   const [showConfigRules, setShowConfigRules] = useState<boolean>(false);
-
-  // Handheld Scanner Listener Ref
-  const listenerRef = useRef<HandheldScannerListener | null>(null);
-
-  // Load Dropdowns Dynamically from Backend API
-  const loadMasterData = async () => {
-    setLoadingDropdowns(true);
-    try {
-      const [locs, staff] = await Promise.all([
-        inventoryApi.getLocations(true), // Active locations only
-        inventoryApi.getPersonnel(true), // Active personnel only
-      ]);
-      setLocations(locs);
-      setPersonnel(staff);
-
-      // Pre-select first personnel or location if only 1 exists
-      if (locs.length === 1 && !storeLocationId) setStoreLocationId(locs[0].id);
-      if (staff.length === 1 && !scanByPersonnelId) setScanByPersonnelId(staff[0].id);
-    } catch (err: any) {
-      setSubmitError('Failed to load active store locations or personnel from backend.');
-    } finally {
-      setLoadingDropdowns(false);
-    }
-  };
+  const notificationTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
-    loadMasterData();
+    let cancelled = false;
+    Promise.all([inventoryApi.getLocations(true), inventoryApi.getPersonnel(true)])
+      .then(([locs, staff]) => {
+        if (cancelled) return;
+        setLocations(locs);
+        setPersonnel(staff);
+        // Nothing to choose when there is only one option.
+        if (locs.length === 1) setStoreLocationId(locs[0].id);
+        if (staff.length === 1) setScanByPersonnelId(staff[0].id);
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setSubmitError(errorMessage(cause, 'Could not load the active store locations and personnel.'));
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDropdowns(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // Handheld Scanner Listener Setup
-  useEffect(() => {
-    const handleScanCapture = (scannedText: string) => {
-      processIncomingScan(scannedText);
-    };
+  useEffect(() => () => window.clearTimeout(notificationTimer.current), []);
 
-    listenerRef.current = new HandheldScannerListener(handleScanCapture);
-    listenerRef.current.start();
-
-    return () => {
-      if (listenerRef.current) {
-        listenerRef.current.stop();
-      }
-    };
-  }, [serialNumber, tagNumber, rules]);
-
-  const notify = (text: string, type: 'success' | 'warning' | 'info' = 'info') => {
+  const notify = (text: string, type: ScanTone = 'info') => {
+    window.clearTimeout(notificationTimer.current);
     setScannerNotification({ text, type });
-    setTimeout(() => {
-      setScannerNotification(null);
-    }, 4000);
+    notificationTimer.current = window.setTimeout(() => setScannerNotification(null), NOTIFICATION_MS);
   };
 
-  /**
-   * Process scanned value from handheld scanner or test buttons
-   * Supports sequential capture in either scan order
-   * Does not overwrite an already captured field silently!
-   */
-  const processIncomingScan = (rawText: string) => {
-    const text = rawText.trim();
-    if (!text) return;
-
-    const classification: ScanClassificationResult = classifyBarcode(text, rules);
-
-    // Rule 1: If neither field is populated yet, classify and populate
-    if (!serialNumber && !tagNumber) {
-      if (classification.type === 'SERIAL_NUMBER') {
-        setSerialNumber(text);
-        notify(`Captured Serial Number: "${text}". Waiting for Tag Number...`, 'info');
-      } else if (classification.type === 'TAG_NUMBER') {
-        setTagNumber(text);
-        notify(`Captured Tag Number: "${text}". Waiting for Serial Number...`, 'info');
-      } else {
-        // Unknown classification: default to Serial Number, but notify technician
-        setSerialNumber(text);
-        notify(`Captured identifier "${text}". Assigned to Serial Number (format unverified).`, 'warning');
-      }
-      return;
+  const handleScan = useEffectEvent((rawText: string) => {
+    const placement = placeScan({ serial: serialNumber, tag: tagNumber }, rawText);
+    if (!placement) return;
+    if (placement.changed) {
+      setSerialNumber(placement.slots.serial);
+      setTagNumber(placement.slots.tag);
     }
+    notify(placement.message, placement.tone);
+  });
 
-    // Rule 2: If Serial is already populated, but Tag is empty
-    if (serialNumber && !tagNumber) {
-      if (text === serialNumber) {
-        notify(`Rescanned same value "${text}". Tag Number is still required.`, 'warning');
-        return;
-      }
-
-      if (classification.type === 'SERIAL_NUMBER') {
-        // Warning: incoming barcode also looks like a serial number!
-        // Do not silently overwrite Serial Number!
-        notify(
-          `Scanned "${text}" looks like a Serial Number, but Serial Number is already set to "${serialNumber}". Use Swap or clear Serial first.`,
-          'warning'
-        );
-        return;
-      }
-
-      // Assign to Tag Number
-      setTagNumber(text);
-      notify(`Captured Tag Number: "${text}". Both barcodes ready!`, 'success');
-      return;
-    }
-
-    // Rule 3: If Tag is already populated, but Serial is empty
-    if (!serialNumber && tagNumber) {
-      if (text === tagNumber) {
-        notify(`Rescanned same value "${text}". Serial Number is still required.`, 'warning');
-        return;
-      }
-
-      if (classification.type === 'TAG_NUMBER') {
-        notify(
-          `Scanned "${text}" looks like a Tag Number, but Tag Number is already set to "${tagNumber}". Use Swap or clear Tag first.`,
-          'warning'
-        );
-        return;
-      }
-
-      // Assign to Serial Number
-      setSerialNumber(text);
-      notify(`Captured Serial Number: "${text}". Both barcodes ready!`, 'success');
-      return;
-    }
-
-    // Rule 4: If BOTH are already populated! Do NOT overwrite silently!
-    if (serialNumber && tagNumber) {
-      notify(
-        `Both fields are already captured (Serial: ${serialNumber}, Tag: ${tagNumber}). Rescan blocked to prevent accidental overwrite. Clear field to replace.`,
-        'warning'
-      );
-    }
-  };
+  // Keyboard-wedge scanners type the barcode and press Enter; the listener collects those keystrokes.
+  useEffect(() => {
+    const listener = new HandheldScannerListener((text) => handleScan(text));
+    listener.start();
+    return () => listener.stop();
+  }, []);
 
   const handleSwapIdentifiers = () => {
-    const temp = serialNumber;
     setSerialNumber(tagNumber);
-    setTagNumber(temp);
+    setTagNumber(serialNumber);
     notify('Swapped Serial Number and Tag Number assignments.', 'info');
   };
 
@@ -230,17 +129,16 @@ export const RegisterView: React.FC<Props> = ({ onSuccess, onInspectItem }) => {
       });
 
       setRegisteredSuccessItem(newItem);
-      onSuccess(newItem);
       notify(`Asset "${newItem.tagNumber}" successfully registered in database.`, 'success');
 
       // Clear the scanned identifiers for next intake while preserving location/personnel defaults
       setSerialNumber('');
       setTagNumber('');
-    } catch (err: any) {
-      if (err.errorCode === 'DUPLICATE_IDENTIFIER') {
-        setDuplicateConflict(err as DuplicateConflictError);
+    } catch (cause: unknown) {
+      if (isDuplicateConflictError(cause)) {
+        setDuplicateConflict(cause);
       } else {
-        setSubmitError(err.message || 'An error occurred while registering the inventory item.');
+        setSubmitError(errorMessage(cause, 'An error occurred while registering the inventory item.'));
       }
     } finally {
       setIsSubmitting(false);
@@ -294,25 +192,6 @@ export const RegisterView: React.FC<Props> = ({ onSuccess, onInspectItem }) => {
             (USB & Bluetooth keyboard wedge mode ready)
           </span>
         </div>
-
-        {/* Quick Testing Barcode Buttons for easy simulation */}
-        <div className="flex items-center gap-2 text-[11px]">
-          <span className="text-slate-400">Simulate Scan:</span>
-          <button
-            type="button"
-            onClick={() => processIncomingScan('F005327261')}
-            className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono rounded transition-colors"
-          >
-            F005327261
-          </button>
-          <button
-            type="button"
-            onClick={() => processIncomingScan('PV-16501')}
-            className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono rounded transition-colors"
-          >
-            PV-16501
-          </button>
-        </div>
       </div>
 
       {/* Floating Scanner Notification Banner */}
@@ -342,33 +221,22 @@ export const RegisterView: React.FC<Props> = ({ onSuccess, onInspectItem }) => {
       {/* Configurable Classification Rules Box (Collapsible) */}
       {showConfigRules && (
         <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-              <Info className="w-4 h-4 text-slate-500" />
-              Configurable Barcode Classification Rules
-            </span>
-            <button
-              onClick={() => {
-                setRules(defaultClassificationRules);
-                notify('Reset classification rules to industrial defaults.', 'info');
-              }}
-              className="text-xs text-[#004B87] hover:underline"
-            >
-              Reset to Defaults
-            </button>
-          </div>
+          <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+            <Info className="w-4 h-4 text-slate-500" />
+            Barcode Classification Rules
+          </span>
           <p className="text-slate-600 leading-relaxed">
             Scanned values without prefixes are classified into Serial Number or Tag Number via regular expression patterns.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 font-mono text-[11px]">
             <div className="p-2.5 bg-white border border-slate-200 rounded">
               <div className="font-semibold text-slate-700 mb-1">Tag Number Pattern (ISA-5.1)</div>
-              <div className="text-slate-500">{rules.tagNumberRegex.toString()}</div>
+              <div className="text-slate-500">{defaultClassificationRules.tagNumberRegex.toString()}</div>
               <div className="text-[10px] text-slate-400 mt-1">Matches: PV-16501, FT-10402, LT-20415</div>
             </div>
             <div className="p-2.5 bg-white border border-slate-200 rounded">
               <div className="font-semibold text-slate-700 mb-1">Serial Number Pattern</div>
-              <div className="text-slate-500">{rules.serialNumberRegex.toString()}</div>
+              <div className="text-slate-500">{defaultClassificationRules.serialNumberRegex.toString()}</div>
               <div className="text-[10px] text-slate-400 mt-1">Matches: F005327261, S991048210, 89104021</div>
             </div>
           </div>
@@ -636,17 +504,20 @@ export const RegisterView: React.FC<Props> = ({ onSuccess, onInspectItem }) => {
       </form>
 
       {/* Camera Barcode Scanner Modal */}
-      <CameraScannerModal
-        isOpen={isCameraModalOpen}
-        onClose={() => setIsCameraModalOpen(false)}
-        initialSerial={serialNumber}
-        initialTag={tagNumber}
-        onConfirmScans={(scannedSerial, scannedTag) => {
-          if (scannedSerial) setSerialNumber(scannedSerial);
-          if (scannedTag) setTagNumber(scannedTag);
-          notify('Camera barcodes applied to registration workstation.', 'success');
-        }}
-      />
+      {isCameraModalOpen && (
+        <Suspense fallback={null}>
+          <CameraScannerModal
+            onClose={() => setIsCameraModalOpen(false)}
+            initialSerial={serialNumber}
+            initialTag={tagNumber}
+            onConfirmScans={(scannedSerial, scannedTag) => {
+              if (scannedSerial) setSerialNumber(scannedSerial);
+              if (scannedTag) setTagNumber(scannedTag);
+              notify('Camera barcodes applied to registration workstation.', 'success');
+            }}
+          />
+        </Suspense>
+      )}
 
       {/* Duplicate Conflict Response Modal */}
       <DuplicateConflictModal

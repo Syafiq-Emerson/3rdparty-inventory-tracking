@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { Menu, Shield, Database, Radio, Clock, MapPin } from 'lucide-react';
+import { Menu, Database, Radio, Clock, MapPin, LogOut } from 'lucide-react';
 import emersonLogo from '../assets/emerson_logo.svg';
 
 interface Props {
   onToggleMobileSidebar: () => void;
   activeView: string;
+  userName: string;
+  onSignOut: () => void;
 }
 
-export const Navbar: React.FC<Props> = ({ onToggleMobileSidebar, activeView }) => {
+export const Navbar: React.FC<Props> = ({ onToggleMobileSidebar, userName, onSignOut }) => {
   const [timeString, setTimeString] = useState<string>('');
 
   useEffect(() => {
@@ -63,7 +65,7 @@ export const Navbar: React.FC<Props> = ({ onToggleMobileSidebar, activeView }) =
         <div className="hidden lg:flex items-center gap-3 text-slate-600 border-r border-slate-200 pr-4">
           <span className="flex items-center gap-1.5 font-medium text-slate-700">
             <Database className="w-3.5 h-3.5 text-[#004B87]" />
-            MySQL 8.0 Engine
+            SQL Server
           </span>
           <span className="text-slate-300">·</span>
           <span className="text-slate-600">Plant Unit 04 / Facility North</span>
@@ -85,6 +87,17 @@ export const Navbar: React.FC<Props> = ({ onToggleMobileSidebar, activeView }) =
           <MapPin className="w-3.5 h-3.5" aria-hidden="true" />
           Nilai, Malaysia Plant
         </span>
+
+        <div className="flex shrink-0 items-center gap-2 border-l border-slate-200 pl-2 sm:pl-4">
+          <span className="hidden sm:inline text-[11px] font-semibold text-slate-700">{userName}</span>
+          <button
+            onClick={onSignOut}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded transition-colors"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Sign out</span>
+          </button>
+        </div>
       </div>
     </header>
   );

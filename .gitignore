@@ -5,4 +5,25 @@ coverage/
 .DS_Store
 *.log
 .env*
-!.env.example
+
+# .NET build output
+bin/
+obj/
+
+# IDE
+.vs/
+
+# Keep the shared VS Code launch/task setup; ignore per-user files.
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Data Protection keys and runtime state; never commit these.
+backend/IndustrialInventory.Api/App_Data/
+
+# Publish profiles: only the shared IIS profile is committed; per-user publish history is not.
+*.pubxml
+!backend/IndustrialInventory.Api/Properties/PublishProfiles/DeployIIS.pubxml
+*.user

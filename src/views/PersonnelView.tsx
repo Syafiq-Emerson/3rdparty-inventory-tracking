@@ -1,22 +1,19 @@
-import React, { useEffect, useState } from 'react';
-import {
-  Users,
-  Plus,
-  Edit2,
-  Power,
-  Check,
-  X,
-  AlertCircle,
-  UserCheck,
-  ShieldAlert,
-} from 'lucide-react';
+import React, { useState } from 'react';
+import { Plus, Edit2, Power, X, AlertCircle, UserCheck, ShieldAlert } from 'lucide-react';
 import { Personnel } from '../types/inventory';
-import { inventoryApi } from '../services/api';
+import { errorMessage, inventoryApi } from '../services/api';
+import { useAsync } from '../hooks/useAsync';
 
 export const PersonnelView: React.FC = () => {
-  const [personnelList, setPersonnelList] = useState<Personnel[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    data,
+    loading: loadingAll,
+    error,
+    reload,
+  } = useAsync(() => inventoryApi.getPersonnel(false), null, 'Failed to fetch personnel directory.');
+  const personnelList = data ?? [];
+  // Only the first load replaces the table; later refreshes keep it on screen.
+  const loading = loadingAll && data === null;
 
   // Modal / Form state for Add or Edit
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -25,23 +22,6 @@ export const PersonnelView: React.FC = () => {
   const [formName, setFormName] = useState<string>('');
   const [formError, setFormError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState<boolean>(false);
-
-  const loadPersonnel = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await inventoryApi.getPersonnel(false); // get both active & inactive
-      setPersonnelList(data);
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch personnel directory.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadPersonnel();
-  }, []);
 
   const handleOpenAdd = () => {
     setEditingPerson(null);
@@ -62,9 +42,9 @@ export const PersonnelView: React.FC = () => {
   const handleToggleStatus = async (person: Personnel) => {
     try {
       await inventoryApi.togglePersonnelStatus(person.id, !person.isActive);
-      await loadPersonnel();
-    } catch (err: any) {
-      alert(err.message || 'Failed to toggle personnel status.');
+      reload();
+    } catch (cause: unknown) {
+      alert(errorMessage(cause, 'Failed to toggle personnel status.'));
     }
   };
 
@@ -85,9 +65,9 @@ export const PersonnelView: React.FC = () => {
         await inventoryApi.createPersonnel(formCode.trim(), formName.trim());
       }
       setIsModalOpen(false);
-      await loadPersonnel();
-    } catch (err: any) {
-      setFormError(err.message || 'Failed to save personnel record.');
+      reload();
+    } catch (cause: unknown) {
+      setFormError(errorMessage(cause, 'Failed to save personnel record.'));
     } finally {
       setIsSaving(false);
     }

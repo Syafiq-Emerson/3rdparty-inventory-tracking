@@ -1,23 +1,19 @@
-import React, { useEffect, useState } from 'react';
-import {
-  MapPin,
-  Plus,
-  Edit2,
-  Power,
-  Check,
-  X,
-  AlertCircle,
-  Building,
-  RefreshCw,
-  Boxes,
-} from 'lucide-react';
+import React, { useState } from 'react';
+import { Plus, Edit2, Power, X, AlertCircle, Building } from 'lucide-react';
 import { StoreLocation } from '../types/inventory';
-import { inventoryApi } from '../services/api';
+import { errorMessage, inventoryApi } from '../services/api';
+import { useAsync } from '../hooks/useAsync';
 
 export const StoreLocationsView: React.FC = () => {
-  const [locations, setLocations] = useState<StoreLocation[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    data,
+    loading: loadingAll,
+    error,
+    reload,
+  } = useAsync(() => inventoryApi.getLocations(false), null, 'Failed to fetch store locations.');
+  const locations = data ?? [];
+  // Only the first load replaces the table; later refreshes keep it on screen.
+  const loading = loadingAll && data === null;
 
   // Modal / Form state for Add or Edit
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -26,23 +22,6 @@ export const StoreLocationsView: React.FC = () => {
   const [formName, setFormName] = useState<string>('');
   const [formError, setFormError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState<boolean>(false);
-
-  const loadLocations = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await inventoryApi.getLocations(false); // get both active & inactive
-      setLocations(data);
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch store locations.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadLocations();
-  }, []);
 
   const handleOpenAdd = () => {
     setEditingLocation(null);
@@ -63,9 +42,9 @@ export const StoreLocationsView: React.FC = () => {
   const handleToggleStatus = async (loc: StoreLocation) => {
     try {
       await inventoryApi.toggleLocationStatus(loc.id, !loc.isActive);
-      await loadLocations();
-    } catch (err: any) {
-      alert(err.message || 'Failed to toggle location status.');
+      reload();
+    } catch (cause: unknown) {
+      alert(errorMessage(cause, 'Failed to toggle location status.'));
     }
   };
 
@@ -86,9 +65,9 @@ export const StoreLocationsView: React.FC = () => {
         await inventoryApi.createLocation(formCode.trim(), formName.trim());
       }
       setIsModalOpen(false);
-      await loadLocations();
-    } catch (err: any) {
-      setFormError(err.message || 'Failed to save location.');
+      reload();
+    } catch (cause: unknown) {
+      setFormError(errorMessage(cause, 'Failed to save location.'));
     } finally {
       setIsSaving(false);
     }

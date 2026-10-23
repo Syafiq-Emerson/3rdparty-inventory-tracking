@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import {
   Boxes,
   MapPin,
@@ -12,7 +12,7 @@ import {
   Layers,
   ChevronRight,
 } from 'lucide-react';
-import { DashboardSummary } from '../types/inventory';
+import { useAsync } from '../hooks/useAsync';
 import { inventoryApi } from '../services/api';
 import kpi1Bg from '../assets/ong.png';
 import kpi2Bg from '../assets/ong2.jpg';
@@ -25,30 +25,13 @@ interface Props {
 }
 
 export const DashboardView: React.FC<Props> = ({ onNavigate, onInspectItem }) => {
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [refreshing, setRefreshing] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchSummary = async (isManual = false) => {
-    if (isManual) setRefreshing(true);
-    else setLoading(true);
-    setError(null);
-
-    try {
-      const data = await inventoryApi.getDashboardSummary();
-      setSummary(data);
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch dashboard statistics.');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchSummary();
-  }, []);
+  const {
+    data: summary,
+    loading,
+    error,
+    reload,
+  } = useAsync(() => inventoryApi.getDashboardSummary(), null, 'Failed to fetch dashboard statistics.');
+  const refreshing = loading && summary !== null;
 
   const totalCapacity = summary?.inventoryByStoreLocation.reduce((acc, curr) => acc + curr.itemCount, 0) || 1;
 
@@ -67,7 +50,7 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, onInspectItem }) =>
 
         <div className="flex items-center gap-2.5">
           <button
-            onClick={() => fetchSummary(true)}
+            onClick={reload}
             disabled={refreshing}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-50 transition-colors shadow-2xs disabled:opacity-50"
           >
@@ -106,7 +89,7 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, onInspectItem }) =>
                 style={{ backgroundImage: `url(${kpi1Bg})` }}
               />
               {/* Semi-transparent Dark Navy/Black Contrast Overlay */}
-              <div className="absolute inset-0 bg-gradient-to-t from-[#050C18]/95 via-[#050C18]/80 to-[#050C18]/70 pointer-events-none" />
+              <div className="absolute inset-0 bg-linear-to-t from-[#050C18]/95 via-[#050C18]/80 to-[#050C18]/70 pointer-events-none" />
 
               {/* Foreground Content */}
               <div className="relative z-10">
@@ -135,7 +118,7 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, onInspectItem }) =>
                 style={{ backgroundImage: `url(${kpi2Bg})` }}
               />
               {/* Semi-transparent Dark Navy/Black Contrast Overlay */}
-              <div className="absolute inset-0 bg-gradient-to-t from-[#050C18]/95 via-[#050C18]/80 to-[#050C18]/70 pointer-events-none" />
+              <div className="absolute inset-0 bg-linear-to-t from-[#050C18]/95 via-[#050C18]/80 to-[#050C18]/70 pointer-events-none" />
 
               {/* Foreground Content */}
               <div className="relative z-10">
@@ -164,7 +147,7 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, onInspectItem }) =>
                 style={{ backgroundImage: `url(${kpi3Bg})` }}
               />
               {/* Semi-transparent Dark Navy/Black Contrast Overlay */}
-              <div className="absolute inset-0 bg-gradient-to-t from-[#050C18]/95 via-[#050C18]/80 to-[#050C18]/70 pointer-events-none" />
+              <div className="absolute inset-0 bg-linear-to-t from-[#050C18]/95 via-[#050C18]/80 to-[#050C18]/70 pointer-events-none" />
 
               {/* Foreground Content */}
               <div className="relative z-10">
@@ -193,7 +176,7 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, onInspectItem }) =>
                 style={{ backgroundImage: `url(${kpi4Bg})` }}
               />
               {/* Semi-transparent Dark Navy/Black Contrast Overlay */}
-              <div className="absolute inset-0 bg-gradient-to-t from-[#050C18]/95 via-[#050C18]/80 to-[#050C18]/70 pointer-events-none" />
+              <div className="absolute inset-0 bg-linear-to-t from-[#050C18]/95 via-[#050C18]/80 to-[#050C18]/70 pointer-events-none" />
 
               {/* Foreground Content */}
               <div className="relative z-10">

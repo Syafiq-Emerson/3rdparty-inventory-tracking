@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeftRight,
@@ -16,17 +16,16 @@ import {
   ShieldCheck,
   UserRound,
 } from 'lucide-react';
-import { ApiRequestError, inventoryApi } from '../services/api';
-import { CameraScannerModal } from '../components/CameraScannerModal';
-import {
-  classifyBarcode,
-  HandheldScannerListener,
-} from '../services/scanner';
+import { ApiError, inventoryApi } from '../services/api';
+import { useAsync } from '../hooks/useAsync';
+import { HandheldScannerListener, placeScan, ScanTone } from '../services/scanner';
 import {
   InventoryItemIdentification,
   IssueInventoryResponse,
-  Personnel,
 } from '../types/inventory';
+
+// The camera decoder is large; load it only when someone opens the scanner.
+const CameraScannerModal = lazy(() => import('../components/CameraScannerModal'));
 
 interface Props {
   onViewInventory: () => void;
@@ -36,10 +35,17 @@ export const IssueForPackingView: React.FC<Props> = ({ onViewInventory }) => {
   const [serialNumber, setSerialNumber] = useState('');
   const [tagNumber, setTagNumber] = useState('');
   const [personnelId, setPersonnelId] = useState('');
-  const [personnel, setPersonnel] = useState<Personnel[]>([]);
-  const [personnelLoading, setPersonnelLoading] = useState(true);
-  const [personnelError, setPersonnelError] = useState<string | null>(null);
-  const [personnelReload, setPersonnelReload] = useState(0);
+  const {
+    data: activePersonnel,
+    loading: personnelLoading,
+    error: personnelError,
+    reload: retryPersonnel,
+  } = useAsync(
+    () => inventoryApi.getPersonnel(true),
+    null,
+    'Unable to load active personnel. Check the connection and try again.',
+  );
+  const personnel = activePersonnel ?? [];
   const [identifiedItem, setIdentifiedItem] = useState<InventoryItemIdentification | null>(null);
   const [identifyError, setIdentifyError] = useState<string | null>(null);
   const [issueError, setIssueError] = useState<string | null>(null);
@@ -48,43 +54,11 @@ export const IssueForPackingView: React.FC<Props> = ({ onViewInventory }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
-  const [scannerNotification, setScannerNotification] = useState<{
-    text: string;
-    type: 'success' | 'warning' | 'info';
-  } | null>(null);
-  const scannerHandlerRef = useRef<(value: string) => void>(() => undefined);
+  const [scannerNotification, setScannerNotification] = useState<{ text: string; type: ScanTone } | null>(null);
   const submissionLockRef = useRef(false);
   const identificationRequestRef = useRef(0);
 
-  useEffect(() => {
-    let isMounted = true;
-    setPersonnelLoading(true);
-    setPersonnelError(null);
-
-    inventoryApi.getPersonnel(true)
-      .then((activePersonnel) => {
-        if (isMounted) setPersonnel(activePersonnel.filter((person) => person.isActive));
-      })
-      .catch((error: unknown) => {
-        if (isMounted) {
-          setPersonnelError(
-            error instanceof Error
-              ? error.message
-              : 'Unable to load active personnel. Check the connection and try again.'
-          );
-          setPersonnel([]);
-        }
-      })
-      .finally(() => {
-        if (isMounted) setPersonnelLoading(false);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [personnelReload]);
-
-  const notifyScanner = (text: string, type: 'success' | 'warning' | 'info' = 'info') => {
+  const notifyScanner = (text: string, type: ScanTone = 'info') => {
     setScannerNotification({ text, type });
   };
 
@@ -96,77 +70,22 @@ export const IssueForPackingView: React.FC<Props> = ({ onViewInventory }) => {
     setIssueError(null);
   };
 
-  const processIncomingScan = (rawText: string) => {
+  const handleScan = useEffectEvent((rawText: string) => {
     if (submissionLockRef.current) return;
-    const text = rawText.trim();
-    if (!text) return;
-
-    const classification = classifyBarcode(text);
-    const currentSerial = serialNumber.trim();
-    const currentTag = tagNumber.trim();
-
-    if (!currentSerial && !currentTag) {
-      if (classification.type === 'TAG_NUMBER') {
-        setTagNumber(text);
-        notifyScanner(`Captured Tag Number: "${text}". Waiting for Serial Number.`, 'info');
-      } else {
-        setSerialNumber(text);
-        notifyScanner(
-          classification.type === 'UNKNOWN'
-            ? `Captured identifier "${text}" as Serial Number (format unverified).`
-            : `Captured Serial Number: "${text}". Waiting for Tag Number.`,
-          classification.type === 'UNKNOWN' ? 'warning' : 'info'
-        );
-      }
+    const placement = placeScan({ serial: serialNumber, tag: tagNumber }, rawText);
+    if (!placement) return;
+    if (placement.changed) {
+      setSerialNumber(placement.slots.serial);
+      setTagNumber(placement.slots.tag);
       clearIdentification();
       setIssuedResult(null);
-      return;
     }
+    notifyScanner(placement.message, placement.tone);
+  });
 
-    if (currentSerial && !currentTag) {
-      if (text.toLowerCase() === currentSerial.toLowerCase()) {
-        notifyScanner(`Duplicate scan ignored: "${text}" is already in Serial Number.`, 'warning');
-      } else if (classification.type === 'SERIAL_NUMBER') {
-        notifyScanner(`Serial Number is already filled. Clear or swap it before replacing it with "${text}".`, 'warning');
-      } else {
-        setTagNumber(text);
-        clearIdentification();
-        setIssuedResult(null);
-        notifyScanner(`Captured Tag Number: "${text}". Both identifiers are ready.`, 'success');
-      }
-      return;
-    }
-
-    if (!currentSerial && currentTag) {
-      if (text.toLowerCase() === currentTag.toLowerCase()) {
-        notifyScanner(`Duplicate scan ignored: "${text}" is already in Tag Number.`, 'warning');
-      } else if (classification.type === 'TAG_NUMBER') {
-        notifyScanner(`Tag Number is already filled. Clear or swap it before replacing it with "${text}".`, 'warning');
-      } else {
-        setSerialNumber(text);
-        clearIdentification();
-        setIssuedResult(null);
-        notifyScanner(`Captured Serial Number: "${text}". Both identifiers are ready.`, 'success');
-      }
-      return;
-    }
-
-    if (text.toLowerCase() === currentSerial.toLowerCase() ||
-        text.toLowerCase() === currentTag.toLowerCase()) {
-      notifyScanner(`Duplicate scan ignored: "${text}" is already captured.`, 'warning');
-      return;
-    }
-
-    notifyScanner(
-      `Both fields are already populated (Serial: ${currentSerial}, Tag: ${currentTag}). Clear a field before rescanning.`,
-      'warning'
-    );
-  };
-
-  scannerHandlerRef.current = processIncomingScan;
-
+  // Keyboard-wedge scanners type the barcode and press Enter; the listener collects those keystrokes.
   useEffect(() => {
-    const listener = new HandheldScannerListener((value) => scannerHandlerRef.current(value));
+    const listener = new HandheldScannerListener((text) => handleScan(text));
     listener.start();
     return () => listener.stop();
   }, []);
@@ -200,9 +119,9 @@ export const IssueForPackingView: React.FC<Props> = ({ onViewInventory }) => {
       }
     } catch (error: unknown) {
       if (requestId !== identificationRequestRef.current) return;
-      if (error instanceof ApiRequestError && error.status === 404) {
+      if (error instanceof ApiError && error.status === 404) {
         setIdentifyError('No registered asset matches both identifiers. Check the labels and try again.');
-      } else if (error instanceof ApiRequestError && error.status === 400) {
+      } else if (error instanceof ApiError && error.status === 400) {
         setIdentifyError(error.message);
       } else {
         setIdentifyError(
@@ -235,13 +154,13 @@ export const IssueForPackingView: React.FC<Props> = ({ onViewInventory }) => {
       setIdentifiedItem(null);
       setConfirmed(false);
     } catch (error: unknown) {
-      if (error instanceof ApiRequestError && error.status === 409) {
+      if (error instanceof ApiError && error.status === 409) {
         setIdentifiedItem(null);
         setConfirmed(false);
         setIssueError('This asset was already issued by another request. Identify it again to verify its current status.');
-      } else if (error instanceof ApiRequestError && error.status === 400) {
+      } else if (error instanceof ApiError && error.status === 400) {
         setIssueError(error.message);
-      } else if (error instanceof ApiRequestError && error.status === 404) {
+      } else if (error instanceof ApiError && error.status === 404) {
         setIdentifiedItem(null);
         setConfirmed(false);
         setIssueError('The asset could not be found with that identifier pair. Identify it again before retrying.');
@@ -345,23 +264,6 @@ export const IssueForPackingView: React.FC<Props> = ({ onViewInventory }) => {
           <span className="hidden text-slate-400 md:inline">
             Type values or use a USB / Bluetooth keyboard-wedge scanner.
           </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-[11px]">
-          <span className="text-slate-400">Simulate scan:</span>
-          <button
-            type="button"
-            onClick={() => processIncomingScan('F005327261')}
-            className="rounded bg-slate-800 px-2 py-1 font-mono text-slate-200 transition hover:bg-slate-700"
-          >
-            F005327261
-          </button>
-          <button
-            type="button"
-            onClick={() => processIncomingScan('PV-16501')}
-            className="rounded bg-slate-800 px-2 py-1 font-mono text-slate-200 transition hover:bg-slate-700"
-          >
-            PV-16501
-          </button>
         </div>
       </div>
 
@@ -507,7 +409,7 @@ export const IssueForPackingView: React.FC<Props> = ({ onViewInventory }) => {
                 <p>{personnelError}</p>
                 <button
                   type="button"
-                  onClick={() => setPersonnelReload((attempt) => attempt + 1)}
+                  onClick={retryPersonnel}
                   className="mt-2 inline-flex items-center gap-1.5 font-semibold text-rose-900 underline"
                 >
                   <RefreshCw className="h-3 w-3" /> Retry personnel load
@@ -605,13 +507,16 @@ export const IssueForPackingView: React.FC<Props> = ({ onViewInventory }) => {
         </div>
       </section>
 
-      <CameraScannerModal
-        isOpen={isCameraModalOpen}
-        onClose={() => setIsCameraModalOpen(false)}
-        initialSerial={serialNumber}
-        initialTag={tagNumber}
-        onConfirmScans={handleCameraScans}
-      />
+      {isCameraModalOpen && (
+        <Suspense fallback={null}>
+          <CameraScannerModal
+            onClose={() => setIsCameraModalOpen(false)}
+            initialSerial={serialNumber}
+            initialTag={tagNumber}
+            onConfirmScans={handleCameraScans}
+          />
+        </Suspense>
+      )}
     </div>
   );
 };

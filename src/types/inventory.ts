@@ -1,8 +1,20 @@
 /**
  * Industrial Inventory Management System
  * Shared TypeScript Data Contracts & Interfaces
- * Matches C# ASP.NET Core DTOs and MySQL 8.0 schema
+ * Matches the C# ASP.NET Core DTOs and the SQL Server "inventory" schema.
  */
+
+export interface PagedResponse<T> {
+  items: T[];
+  hasMore: boolean;
+}
+
+export interface SignedInUser {
+  id: string;
+  userName: string;
+  role: string;
+  mustChangePassword: boolean;
+}
 
 export interface StoreLocation {
   id: string;
@@ -113,4 +125,14 @@ export interface ScanClassificationResult {
   confidence: number;
   raw: string;
   reason: string;
+}
+
+export interface AppVersion {
+  version: string;
+  buildDate: string | null;
+}
+
+export interface DeployNotice {
+  secondsRemaining: number;
+  message: string;
 }

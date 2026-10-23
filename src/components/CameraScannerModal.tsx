@@ -1,197 +1,123 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Camera, X, Check, RefreshCw, Zap, AlertCircle, Scan, ArrowRight } from 'lucide-react';
+import { Camera, X, Check, RefreshCw, Zap, AlertCircle, ArrowRight } from 'lucide-react';
 import { BrowserMultiFormatReader } from '@zxing/library';
-import { classifyBarcode } from '../services/scanner';
+import { placeScan, ScanSlots } from '../services/scanner';
 
 interface Props {
-  isOpen: boolean;
   onClose: () => void;
   onConfirmScans: (serial: string, tag: string) => void;
   initialSerial?: string;
   initialTag?: string;
 }
 
-export const CameraScannerModal: React.FC<Props> = ({
-  isOpen,
-  onClose,
-  onConfirmScans,
-  initialSerial = '',
-  initialTag = '',
-}) => {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const codeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+// Torch is a real camera capability that the DOM typings do not list yet.
+type TorchCapabilities = MediaTrackCapabilities & { torch?: boolean };
+type TorchConstraint = MediaTrackConstraintSet & { torch: boolean };
 
-  const [capturedSerial, setCapturedSerial] = useState<string>(initialSerial);
-  const [capturedTag, setCapturedTag] = useState<string>(initialTag);
+const FEEDBACK_MS = 3000;
+
+const cameraErrorMessage = (cause: unknown): string => {
+  if (cause instanceof DOMException && cause.name === 'NotAllowedError') {
+    return 'Camera permission denied. Allow camera access in the browser settings or use manual entry.';
+  }
+  return cause instanceof Error && cause.message ? cause.message : 'Unable to access the camera.';
+};
+
+/** Mount only while open: each opening starts from the form's current values and a fresh camera. */
+export default function CameraScannerModal({ onClose, onConfirmScans, initialSerial = '', initialTag = '' }: Props) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const feedbackTimer = useRef<number | undefined>(undefined);
+
+  const [slots, setSlots] = useState<ScanSlots>({ serial: initialSerial, tag: initialTag });
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [isInitializing, setIsInitializing] = useState<boolean>(true);
   const [torchActive, setTorchActive] = useState<boolean>(false);
   const [hasTorch, setHasTorch] = useState<boolean>(false);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [lastScannedFeedback, setLastScannedFeedback] = useState<string | null>(null);
-
-  // Manual fallback inputs
   const [showManualFallback, setShowManualFallback] = useState<boolean>(false);
-  const [manualSerialInput, setManualSerialInput] = useState<string>(initialSerial);
-  const [manualTagInput, setManualTagInput] = useState<string>(initialTag);
 
   useEffect(() => {
-    if (isOpen) {
-      setCapturedSerial(initialSerial);
-      setCapturedTag(initialTag);
-      setManualSerialInput(initialSerial);
-      setManualTagInput(initialTag);
-      startCamera();
-    } else {
-      stopCamera();
-    }
+    let stopped = false;
+    const reader = new BrowserMultiFormatReader();
+
+    const onDetected = (rawText: string) => {
+      // Functional update: the decoder keeps calling this closure, so it must not read stale state.
+      setSlots((current) => placeScan(current, rawText)?.slots ?? current);
+      window.clearTimeout(feedbackTimer.current);
+      setLastScannedFeedback(`Scanned "${rawText.trim()}"`);
+      feedbackTimer.current = window.setTimeout(() => setLastScannedFeedback(null), FEEDBACK_MS);
+    };
+
+    const start = async () => {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error('This browser cannot use the camera here. The camera needs the site to be opened over HTTPS.');
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: facingMode }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+        if (stopped) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        streamRef.current = stream;
+
+        const video = videoRef.current;
+        if (!video) return;
+        video.srcObject = stream;
+        await video.play();
+
+        const track = stream.getVideoTracks()[0];
+        setHasTorch(Boolean((track.getCapabilities?.() as TorchCapabilities | undefined)?.torch));
+
+        await reader.decodeFromVideoElementContinuously(video, (result) => {
+          if (result) onDetected(result.getText());
+        });
+      } catch (cause: unknown) {
+        if (stopped) return;
+        setCameraError(cameraErrorMessage(cause));
+        setShowManualFallback(true);
+      }
+    };
+
+    void start();
 
     return () => {
-      stopCamera();
-    };
-  }, [isOpen, facingMode]);
-
-  const startCamera = async () => {
-    setIsInitializing(true);
-    setCameraError(null);
-
-    try {
-      // Release existing stream if any
-      stopCamera();
-
-      // Check mediaDevices support
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Camera access is not supported by this browser environment or requires HTTPS.');
-      }
-
-      const constraints: MediaStreamConstraints = {
-        video: {
-          facingMode: { ideal: facingMode },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      };
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-
-        // Check torch capability
-        const track = stream.getVideoTracks()[0];
-        const capabilities = (track.getCapabilities ? track.getCapabilities() : {}) as any;
-        setHasTorch(Boolean(capabilities?.torch));
-
-        // Start ZXing Barcode Scanning loop
-        codeReaderRef.current = new BrowserMultiFormatReader();
-        (codeReaderRef.current as any).decodeFromVideoElementContinuously(
-          videoRef.current,
-          (result: any) => {
-            if (result) {
-              handleBarcodeDetected(result.getText());
-            }
-          }
-        );
-      }
-
-      setIsInitializing(false);
-    } catch (err: any) {
-      console.warn('Camera initiation failed:', err);
-      setCameraError(
-        err.name === 'NotAllowedError'
-          ? 'Camera permission denied. Please allow camera access in browser permissions or use manual entry.'
-          : err.message || 'Unable to access video device.'
-      );
-      setIsInitializing(false);
-      setShowManualFallback(true);
-    }
-  };
-
-  const stopCamera = () => {
-    if (codeReaderRef.current) {
-      try {
-        codeReaderRef.current.reset();
-      } catch (e) {
-        // ignore reset errors
-      }
-      codeReaderRef.current = null;
-    }
-
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
+      stopped = true;
+      reader.reset();
+      streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
-    }
-  };
+      window.clearTimeout(feedbackTimer.current);
+    };
+  }, [facingMode]);
 
   const toggleTorch = async () => {
-    if (!streamRef.current) return;
-    const track = streamRef.current.getVideoTracks()[0];
-    if (track && hasTorch) {
-      try {
-        const nextState = !torchActive;
-        await (track as any).applyConstraints({
-          advanced: [{ torch: nextState }],
-        });
-        setTorchActive(nextState);
-      } catch (e) {
-        console.warn('Torch constraint error:', e);
-      }
+    const track = streamRef.current?.getVideoTracks()[0];
+    if (!track || !hasTorch) return;
+    const next = !torchActive;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: next } as TorchConstraint] });
+      setTorchActive(next);
+    } catch {
+      // Some devices report a torch they cannot switch; the button simply does nothing.
     }
   };
 
   const toggleCamera = () => {
+    setCameraError(null);
+    setTorchActive(false);
     setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'));
   };
 
-  const handleBarcodeDetected = (rawText: string) => {
-    const text = rawText.trim();
-    if (!text) return;
-
-    // Classify identifier
-    const classification = classifyBarcode(text);
-
-    // Provide visual toast feedback
-    setLastScannedFeedback(`Scanned "${text}" (${classification.type === 'SERIAL_NUMBER' ? 'Serial Number' : 'Tag Number'})`);
-    setTimeout(() => setLastScannedFeedback(null), 3000);
-
-    if (classification.type === 'SERIAL_NUMBER') {
-      setCapturedSerial((prev) => {
-        if (!prev) return text;
-        return prev;
-      });
-      setManualSerialInput((prev) => (!prev ? text : prev));
-    } else if (classification.type === 'TAG_NUMBER') {
-      setCapturedTag((prev) => {
-        if (!prev) return text;
-        return prev;
-      });
-      setManualTagInput((prev) => (!prev ? text : prev));
-    } else {
-      // Ambiguous: Assign to whichever field is currently empty
-      if (!capturedSerial) {
-        setCapturedSerial(text);
-        setManualSerialInput(text);
-      } else if (!capturedTag) {
-        setCapturedTag(text);
-        setManualTagInput(text);
-      }
-    }
-  };
-
   const handleApply = () => {
-    const finalSerial = showManualFallback ? manualSerialInput.trim() : capturedSerial.trim();
-    const finalTag = showManualFallback ? manualTagInput.trim() : capturedTag.trim();
-
-    onConfirmScans(finalSerial, finalTag);
+    onConfirmScans(slots.serial.trim(), slots.tag.trim());
     onClose();
   };
 
-  if (!isOpen) return null;
-
+  const capturedSerial = slots.serial;
+  const capturedTag = slots.tag;
   const bothCaptured = Boolean(capturedSerial && capturedTag);
 
   return (
@@ -348,11 +274,8 @@ export const CameraScannerModal: React.FC<Props> = ({
                 <label className="block text-slate-400 mb-1">Serial Number</label>
                 <input
                   type="text"
-                  value={manualSerialInput}
-                  onChange={(e) => {
-                    setManualSerialInput(e.target.value);
-                    setCapturedSerial(e.target.value);
-                  }}
+                  value={capturedSerial}
+                  onChange={(e) => setSlots((current) => ({ ...current, serial: e.target.value }))}
                   placeholder="e.g. F005327261"
                   className="w-full bg-slate-950 border border-slate-700 text-white rounded px-2.5 py-1.5 font-mono focus:border-blue-500 outline-hidden"
                 />
@@ -361,11 +284,8 @@ export const CameraScannerModal: React.FC<Props> = ({
                 <label className="block text-slate-400 mb-1">Tag Number</label>
                 <input
                   type="text"
-                  value={manualTagInput}
-                  onChange={(e) => {
-                    setManualTagInput(e.target.value);
-                    setCapturedTag(e.target.value);
-                  }}
+                  value={capturedTag}
+                  onChange={(e) => setSlots((current) => ({ ...current, tag: e.target.value }))}
                   placeholder="e.g. PV-16501"
                   className="w-full bg-slate-950 border border-slate-700 text-white rounded px-2.5 py-1.5 font-mono focus:border-blue-500 outline-hidden"
                 />
@@ -402,4 +322,4 @@ export const CameraScannerModal: React.FC<Props> = ({
       </div>
     </div>
   );
-};
+}

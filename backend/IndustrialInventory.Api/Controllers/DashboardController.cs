@@ -1,32 +1,50 @@
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using IndustrialInventory.Api.Data;
 using IndustrialInventory.Api.DTOs;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace IndustrialInventory.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class DashboardController : ControllerBase
+[Authorize]
+public sealed class DashboardController(InventoryDbContext db) : ControllerBase
 {
-    private readonly InventoryDbContext _context;
+    private const int RecentItemCount = 6;
 
-    public DashboardController(InventoryDbContext context)
-    {
-        _context = context;
-    }
+    internal sealed record ItemCounts(int Total, int Issued);
 
     // GET: /api/dashboard/summary
     [HttpGet("summary")]
-    public async Task<ActionResult<DashboardSummaryResponse>> GetSummary()
+    public async Task<ActionResult<DashboardSummaryResponse>> GetSummary(CancellationToken ct)
     {
-        var totalUnits = await _context.InventoryItems.CountAsync();
-        var availableUnits = await _context.InventoryItems.CountAsync(i => !i.IsIssued);
-        var issuedForPackingUnits = await _context.InventoryItems.CountAsync(i => i.IsIssued);
-        var activeLocationsCount = await _context.StoreLocations.CountAsync(l => l.IsActive);
-        var activePersonnelCount = await _context.Personnel.CountAsync(p => p.IsActive);
+        var counts = await ItemCountsQuery(db).FirstOrDefaultAsync(ct) ?? new ItemCounts(0, 0);
+        var activeLocationsCount = await db.StoreLocations.CountAsync(l => l.IsActive, ct);
+        var activePersonnelCount = await db.Personnel.CountAsync(p => p.IsActive, ct);
+        var locations = await LocationCountsQuery(db).ToListAsync(ct);
+        var recentItems = await RecentItemsQuery(db).ToListAsync(ct);
 
-        var locations = await _context.StoreLocations
+        return Ok(new DashboardSummaryResponse
+        {
+            TotalRegisteredUnits = counts.Total,
+            AvailableUnits = counts.Total - counts.Issued,
+            IssuedForPackingUnits = counts.Issued,
+            ActiveStoreLocationsCount = activeLocationsCount,
+            ActivePersonnelCount = activePersonnelCount,
+            InventoryByStoreLocation = locations,
+            RecentlyRegisteredInventory = recentItems
+        });
+    }
+
+    // One round trip for both totals.
+    internal static IQueryable<ItemCounts> ItemCountsQuery(InventoryDbContext db) =>
+        db.InventoryItems
+            .GroupBy(_ => 1)
+            .Select(g => new ItemCounts(g.Count(), g.Count(i => i.IsIssued)));
+
+    internal static IQueryable<LocationInventoryCountDto> LocationCountsQuery(InventoryDbContext db) =>
+        db.StoreLocations
             .AsNoTracking()
             .Select(l => new LocationInventoryCountDto
             {
@@ -36,41 +54,12 @@ public class DashboardController : ControllerBase
                 IsActive = l.IsActive,
                 ItemCount = l.InventoryItems.Count(i => !i.IsIssued)
             })
-            .OrderByDescending(l => l.ItemCount)
-            .ToListAsync();
+            .OrderByDescending(l => l.ItemCount);
 
-        var recentItems = await _context.InventoryItems
-            .Include(i => i.Location)
-            .Include(i => i.RegisteredByPersonnel)
+    internal static IQueryable<InventoryItemResponse> RecentItemsQuery(InventoryDbContext db) =>
+        db.InventoryItems
             .AsNoTracking()
-            .OrderByDescending(i => i.CreatedAt)
-            .Take(6)
-            .Select(i => new InventoryItemResponse
-            {
-                Id = i.Id,
-                SerialNumber = i.SerialNumber,
-                TagNumber = i.TagNumber,
-                LocationId = i.LocationId,
-                LocationCode = i.Location.LocationCode,
-                LocationName = i.Location.LocationName,
-                RegisteredByPersonnelId = i.RegisteredByPersonnelId,
-                RegisteredByPersonnelCode = i.RegisteredByPersonnel.PersonnelCode,
-                RegisteredByPersonnelName = i.RegisteredByPersonnel.Name,
-                IsIssued = i.IsIssued,
-                CreatedAt = i.CreatedAt,
-                UpdatedAt = i.UpdatedAt
-            })
-            .ToListAsync();
-
-        return Ok(new DashboardSummaryResponse
-        {
-            TotalRegisteredUnits = totalUnits,
-            AvailableUnits = availableUnits,
-            IssuedForPackingUnits = issuedForPackingUnits,
-            ActiveStoreLocationsCount = activeLocationsCount,
-            ActivePersonnelCount = activePersonnelCount,
-            InventoryByStoreLocation = locations,
-            RecentlyRegisteredInventory = recentItems
-        });
-    }
+            .OrderByDescending(i => i.CreatedAtUtc)
+            .Take(RecentItemCount)
+            .Select(InventoryController.ItemProjection);
 }

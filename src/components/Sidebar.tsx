@@ -5,27 +5,40 @@ import {
   Search,
   MapPin,
   Users,
-  Server,
   Layers,
   ChevronRight,
   X,
   FileCode,
   PackageCheck,
 } from 'lucide-react';
+import { AppVersion } from '../types/inventory';
 
 interface Props {
   activeView: string;
   setActiveView: (view: string) => void;
   isMobileOpen: boolean;
   setIsMobileOpen: (open: boolean) => void;
+  appVersion: AppVersion | null;
 }
+
+/** Client build date as "22 Oct 2026"; the server's build date is used when it is known. */
+const formatBuildDate = (iso: string | null | undefined): string | null => {
+  if (!iso) return null;
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime())
+    ? null
+    : date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+};
 
 export const Sidebar: React.FC<Props> = ({
   activeView,
   setActiveView,
   isMobileOpen,
   setIsMobileOpen,
+  appVersion,
 }) => {
+  const buildDate = formatBuildDate(appVersion?.buildDate ?? VITE_BUILD_DATE);
+
   const navItems = [
     {
       id: 'dashboard',
@@ -63,14 +76,6 @@ export const Sidebar: React.FC<Props> = ({
       id: 'personnel',
       label: 'Personnel',
       icon: Users,
-    },
-  ];
-
-  const technicalItems = [
-    {
-      id: 'architecture',
-      label: 'ASP.NET & MySQL Spec',
-      icon: Server,
     },
   ];
 
@@ -185,40 +190,6 @@ export const Sidebar: React.FC<Props> = ({
             })}
           </nav>
         </div>
-
-        {/* System & Architecture */}
-        {/* <div>
-          <div className="px-3 mb-2 text-[10px] uppercase font-mono tracking-wider text-slate-400 font-semibold">
-            System & Deployment
-          </div>
-          <nav className="space-y-1">
-            {technicalItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeView === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => handleSelect(item.id)}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded text-xs font-medium transition-all ${
-                    isActive
-                      ? 'bg-[#004B87] text-white shadow-xs font-semibold'
-                      : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Icon
-                      className={`w-4 h-4 shrink-0 ${
-                        isActive ? 'text-white' : 'text-slate-400'
-                      }`}
-                    />
-                    <span className="truncate">{item.label}</span>
-                  </div>
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
-                </button>
-              );
-            })}
-          </nav>
-        </div> */}
       </div>
 
       {/* Footer Info */}
@@ -230,6 +201,12 @@ export const Sidebar: React.FC<Props> = ({
         <div className="text-slate-500 leading-tight">
           ISA-5.1 Instrumentation Tags & ASME Physical Serials
         </div>
+        {appVersion && (
+          <div className="mt-3 font-mono text-[10px] text-slate-400">
+            v{appVersion.version}
+            {buildDate && ` · build ${buildDate}`}
+          </div>
+        )}
       </div>
     </div>
   );

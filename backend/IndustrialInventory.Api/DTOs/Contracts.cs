@@ -112,6 +112,34 @@ public record LocationInventoryCountDto
     public bool IsActive { get; init; }
 }
 
+// --- Paging ---
+public record PagedResponse<T>(IReadOnlyList<T> Items, bool HasMore);
+
+// --- Auth DTOs ---
+public record LoginRequest
+{
+    [Required(ErrorMessage = "User name is required.")]
+    [StringLength(50, MinimumLength = 1)]
+    public string UserName { get; init; } = string.Empty;
+
+    [Required(ErrorMessage = "Password is required.")]
+    [StringLength(200, MinimumLength = 1)]
+    public string Password { get; init; } = string.Empty;
+}
+
+public record ChangePasswordRequest
+{
+    [Required(ErrorMessage = "The current password is required.")]
+    [StringLength(200, MinimumLength = 1)]
+    public string CurrentPassword { get; init; } = string.Empty;
+
+    [Required(ErrorMessage = "The new password is required.")]
+    [StringLength(200, MinimumLength = 1)]
+    public string NewPassword { get; init; } = string.Empty;
+}
+
+public record SignedInUserResponse(string Id, string UserName, string Role, bool MustChangePassword);
+
 // --- Store Location DTOs ---
 public record CreateStoreLocationRequest
 {

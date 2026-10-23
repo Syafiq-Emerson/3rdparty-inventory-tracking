@@ -1,24 +1,58 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <RootNamespace>IndustrialInventory.Api</RootNamespace>
     <AssemblyName>IndustrialInventory.Api</AssemblyName>
     <UserSecretsId>6a5450ea-d232-4e15-a46e-9c5f80c480ca</UserSecretsId>
+    <Version>2.1.0</Version>
+    <InformationalVersion>2.1.0</InformationalVersion>
+    <!-- The React client lives at the repo root; publish builds it and ships dist/ as wwwroot. -->
+    <ClientRoot>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../../'))</ClientRoot>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.8" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.8" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.8">
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.1" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.13" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.8" />
-    <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="8.0.2" />
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.7.3" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.13" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.13" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.3.1" />
+    <!-- Overrides the 9.0.18 that Microsoft.Data.SqlClient pulls in, which has a known high-severity advisory. -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
   </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="BuildDate" Value="$([System.DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))" />
+    <InternalsVisibleTo Include="IndustrialInventory.Api.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Runtime state (Data Protection keys, deploy notice). Publishing it would overwrite the server's keys. -->
+    <Content Remove="App_Data\**" />
+    <None Remove="App_Data\**" />
+  </ItemGroup>
+
+  <!-- -p:SkipClientBuild=true reuses an existing dist/ (e.g. when the client was just built). -->
+  <Target Name="PublishClient" AfterTargets="ComputeFilesToPublish">
+    <Error Condition="!Exists('$(ClientRoot)package.json')" Text="IndustrialInventory: the client was not found at '$(ClientRoot)'." />
+    <Exec Condition="'$(SkipClientBuild)' != 'true'" WorkingDirectory="$(ClientRoot)" Command="npm ci" />
+    <Exec Condition="'$(SkipClientBuild)' != 'true'" WorkingDirectory="$(ClientRoot)" Command="npm run build" />
+    <ItemGroup>
+      <ClientDistFiles Include="$(ClientRoot)dist\**" />
+      <ResolvedFileToPublish Include="@(ClientDistFiles->'%(FullPath)')" Exclude="@(ResolvedFileToPublish)">
+        <RelativePath>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+    <Error Condition="'@(ClientDistFiles)' == ''" Text="IndustrialInventory: no client files in '$(ClientRoot)dist'. Run npm run build, then publish again." />
+  </Target>
 
 </Project>

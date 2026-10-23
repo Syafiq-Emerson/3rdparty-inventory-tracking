@@ -1,520 +1,438 @@
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using IndustrialInventory.Api.Data;
 using IndustrialInventory.Api.DTOs;
 using IndustrialInventory.Api.Models;
+using IndustrialInventory.Api.Models.Audit;
+using IndustrialInventory.Api.Services.Inventory;
+using IndustrialInventory.Api.Services.Shared;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace IndustrialInventory.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class InventoryController : ControllerBase
+[Authorize]
+public sealed class InventoryController(
+    InventoryDbContext db,
+    AuditWriter audit,
+    IdempotencyGate idempotency,
+    TimeProvider timeProvider,
+    ILogger<InventoryController> logger) : ControllerBase
 {
-    private readonly InventoryDbContext _context;
-    private readonly ILogger<InventoryController> _logger;
+    private const int SearchResultLimit = 50;
+    private const string IdempotencyHeader = "Idempotency-Key";
 
-    public InventoryController(InventoryDbContext context, ILogger<InventoryController> logger)
-    {
-        _context = context;
-        _logger = logger;
-    }
+    private const string ConcurrentWriteMessage =
+        "Someone else saved a change at the same moment, so this was not recorded. Please try again.";
 
     // GET: /api/inventory
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<InventoryItemResponse>>> GetInventory(
+    public async Task<ActionResult<PagedResponse<InventoryItemResponse>>> GetInventory(
+        CancellationToken ct,
         [FromQuery] string? locationId = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50)
     {
-        var query = _context.InventoryItems
-            .Include(i => i.Location)
-            .Include(i => i.RegisteredByPersonnel)
-            .AsNoTracking();
+        (page, pageSize) = InventoryRules.ClampPaging(page, pageSize);
 
-        if (!string.IsNullOrWhiteSpace(locationId))
-        {
-            query = query.Where(i => i.LocationId == locationId);
-        }
+        var rows = await PageQuery(db, locationId, page, pageSize).ToListAsync(ct);
 
-        var items = await query
-            .OrderByDescending(i => i.CreatedAt)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(i => MapToResponse(i))
-            .ToListAsync();
+        var hasMore = rows.Count > pageSize;
+        if (hasMore) rows.RemoveAt(rows.Count - 1);
 
-        return Ok(items);
+        return Ok(new PagedResponse<InventoryItemResponse>(rows, hasMore));
     }
 
     // GET: /api/inventory/{id}
     [HttpGet("{id}")]
-    public async Task<ActionResult<InventoryItemResponse>> GetById(string id)
+    public async Task<ActionResult<InventoryItemResponse>> GetById(string id, CancellationToken ct)
     {
-        var item = await _context.InventoryItems
-            .Include(i => i.Location)
-            .Include(i => i.RegisteredByPersonnel)
+        var item = await db.InventoryItems
             .AsNoTracking()
-            .FirstOrDefaultAsync(i => i.Id == id);
+            .Where(i => i.Id == id)
+            .Select(ItemProjection)
+            .FirstOrDefaultAsync(ct);
 
-        if (item == null)
-        {
-            return NotFound(new { message = $"Inventory item with ID '{id}' was not found." });
-        }
-
-        return Ok(MapToResponse(item));
+        return item is null
+            ? NotFound(new { error = $"Inventory item with ID '{id}' was not found." })
+            : Ok(item);
     }
 
     // GET: /api/inventory/identify?serialNumber={serialNumber}&tagNumber={tagNumber}
     [HttpGet("identify")]
     public async Task<ActionResult<InventoryItemIdentificationResponse>> Identify(
-        [FromQuery] string? serialNumber,
-        [FromQuery] string? tagNumber)
+        CancellationToken ct,
+        [FromQuery] string? serialNumber = null,
+        [FromQuery] string? tagNumber = null)
     {
         if (string.IsNullOrWhiteSpace(serialNumber) || string.IsNullOrWhiteSpace(tagNumber))
         {
-            return BadRequest(new { message = "Both serial number and tag number are required." });
+            return BadRequest(new { error = "Both serial number and tag number are required." });
         }
 
         var serialClean = serialNumber.Trim();
         var tagClean = tagNumber.Trim();
-        if (serialClean.Length > 100 || tagClean.Length > 100)
+        if (serialClean.Length > InventoryRules.IdentifierMaxLength || tagClean.Length > InventoryRules.IdentifierMaxLength)
         {
-            return BadRequest(new { message = "Serial number and tag number must not exceed 100 characters." });
+            return BadRequest(new
+            {
+                error = $"Serial number and tag number must not exceed {InventoryRules.IdentifierMaxLength} characters."
+            });
         }
 
-        var item = await _context.InventoryItems
-            .Include(i => i.Location)
+        var item = await db.InventoryItems
             .AsNoTracking()
-            .FirstOrDefaultAsync(i =>
-                i.SerialNumber == serialClean &&
-                i.TagNumber == tagClean);
+            .Where(i => i.SerialNumber == serialClean && i.TagNumber == tagClean)
+            .Select(IdentificationProjection)
+            .FirstOrDefaultAsync(ct);
 
-        if (item == null)
-        {
-            return NotFound(new { message = "No inventory item matches both identifiers." });
-        }
-
-        return Ok(MapToIdentificationResponse(item));
+        return item is null
+            ? NotFound(new { error = "No inventory item matches both identifiers." })
+            : Ok(item);
     }
 
     // GET: /api/inventory/search?q={query}
     [HttpGet("search")]
-    public async Task<ActionResult<IEnumerable<InventoryItemResponse>>> Search(
-        [FromQuery] string q,
+    public async Task<ActionResult<PagedResponse<InventoryItemResponse>>> Search(
+        CancellationToken ct,
+        [FromQuery] string? q = null,
         [FromQuery] string? locationId = null)
     {
         if (string.IsNullOrWhiteSpace(q))
         {
-            return await GetInventory(locationId);
+            return await GetInventory(ct, locationId);
         }
 
-        var searchTerm = q.Trim();
+        var results = await SearchQuery(db, InventoryRules.ContainsPattern(q), locationId).ToListAsync(ct);
 
-        var query = _context.InventoryItems
-            .Include(i => i.Location)
-            .Include(i => i.RegisteredByPersonnel)
-            .AsNoTracking()
-            .Where(i => EF.Functions.Like(i.SerialNumber, $"%{searchTerm}%") ||
-                        EF.Functions.Like(i.TagNumber, $"%{searchTerm}%"));
-
-        if (!string.IsNullOrWhiteSpace(locationId))
-        {
-            query = query.Where(i => i.LocationId == locationId);
-        }
-
-        var results = await query
-            .OrderByDescending(i => i.CreatedAt)
-            .Take(50)
-            .Select(i => MapToResponse(i))
-            .ToListAsync();
-
-        return Ok(results);
+        return Ok(new PagedResponse<InventoryItemResponse>(results, false));
     }
 
     // POST: /api/inventory
     [HttpPost]
-    public async Task<ActionResult<InventoryItemResponse>> RegisterItem([FromBody] RegisterInventoryRequest request)
+    public async Task<ActionResult<InventoryItemResponse>> RegisterItem(
+        [FromBody] RegisterInventoryRequest request,
+        CancellationToken ct)
     {
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(ModelState);
-        }
-
         var serialClean = request.SerialNumber.Trim();
         var tagClean = request.TagNumber.Trim();
 
-        // 1. Check for Duplicate Serial Number
-        var existingSerial = await _context.InventoryItems
-            .Include(i => i.Location)
-            .Include(i => i.RegisteredByPersonnel)
-            .AsNoTracking()
-            .FirstOrDefaultAsync(i => i.SerialNumber == serialClean);
-
-        if (existingSerial != null)
+        // A replayed key must return the original row, so this runs before the duplicate check:
+        // the row the first attempt created would otherwise look like a conflict.
+        var idempotencyKey = ReadIdempotencyKey();
+        if (idempotencyKey is not null)
         {
-            return Conflict(new DuplicateConflictResponse
-            {
-                ErrorCode = "DUPLICATE_IDENTIFIER",
-                Message = $"Serial Number '{serialClean}' is already registered in the system.",
-                ConflictingField = "SerialNumber",
-                ConflictingValue = serialClean,
-                ExistingItem = MapToResponse(existingSerial)
-            });
+            var replay = await FindByIdempotencyKeyAsync(idempotencyKey, ct);
+            if (replay is not null) return Ok(replay);
         }
 
-        // 2. Check for Duplicate Tag Number
-        var existingTag = await _context.InventoryItems
-            .Include(i => i.Location)
-            .Include(i => i.RegisteredByPersonnel)
-            .AsNoTracking()
-            .FirstOrDefaultAsync(i => i.TagNumber == tagClean);
+        var duplicate = await FindDuplicateAsync(serialClean, tagClean, ct);
+        if (duplicate is not null) return Conflict(duplicate);
 
-        if (existingTag != null)
+        var location = await db.StoreLocations.AsNoTracking()
+            .FirstOrDefaultAsync(l => l.Id == request.StoreLocationId, ct);
+        if (location is null)
         {
-            return Conflict(new DuplicateConflictResponse
-            {
-                ErrorCode = "DUPLICATE_IDENTIFIER",
-                Message = $"Tag Number '{tagClean}' is already registered in the system.",
-                ConflictingField = "TagNumber",
-                ConflictingValue = tagClean,
-                ExistingItem = MapToResponse(existingTag)
-            });
-        }
-
-        // 3. Verify Referenced Location
-        var location = await _context.StoreLocations.FindAsync(request.StoreLocationId);
-        if (location == null)
-        {
-            return BadRequest(new { message = $"Store location ID '{request.StoreLocationId}' does not exist." });
+            return BadRequest(new { error = $"Store location ID '{request.StoreLocationId}' does not exist." });
         }
         if (!location.IsActive)
         {
-            return BadRequest(new { message = $"Store location '{location.LocationName}' ({location.LocationCode}) is inactive." });
+            return BadRequest(new { error = $"Store location '{location.LocationName}' ({location.LocationCode}) is inactive." });
         }
 
-        // 4. Verify Referenced Personnel
-        var personnel = await _context.Personnel.FindAsync(request.ScanByPersonnelId);
-        if (personnel == null)
+        var personnel = await db.Personnel.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == request.ScanByPersonnelId, ct);
+        if (personnel is null)
         {
-            return BadRequest(new { message = $"Personnel ID '{request.ScanByPersonnelId}' does not exist." });
+            return BadRequest(new { error = $"Personnel ID '{request.ScanByPersonnelId}' does not exist." });
         }
         if (!personnel.IsActive)
         {
-            return BadRequest(new { message = $"Personnel '{personnel.Name}' is inactive." });
+            return BadRequest(new { error = $"Personnel '{personnel.Name}' is inactive." });
         }
 
-        // 5. Execute Atomic Transaction: Create InventoryItem + Initial Movement
-        var itemId = Guid.NewGuid().ToString();
-        var movementId = Guid.NewGuid().ToString();
-        var executionStrategy = _context.Database.CreateExecutionStrategy();
+        if (idempotencyKey is not null && !idempotency.TryBegin(idempotencyKey))
+        {
+            return Conflict(new { error = "That request is already being processed. Wait a moment and check the inventory list." });
+        }
+
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        var newItem = new InventoryItem
+        {
+            Id = Guid.NewGuid().ToString(),
+            SerialNumber = serialClean,
+            TagNumber = tagClean,
+            LocationId = location.Id,
+            RegisteredByPersonnelId = personnel.Id,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+
         try
         {
-            var created = await executionStrategy.ExecuteAsync(async () =>
+            var strategy = db.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
             {
-                _context.ChangeTracker.Clear();
+                await using var tx = await db.Database.BeginTransactionAsync(ct);
 
-                var existingAttempt = await _context.InventoryItems
-                    .Include(i => i.Location)
-                    .Include(i => i.RegisteredByPersonnel)
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(i => i.Id == itemId);
-
-                if (existingAttempt != null)
+                db.InventoryItems.Add(newItem);
+                db.InventoryMovements.Add(new InventoryMovement
                 {
-                    var movementExists = await _context.InventoryMovements
-                        .AsNoTracking()
-                        .AnyAsync(m => m.Id == movementId &&
-                                       m.InventoryItemId == itemId &&
-                                       m.FromLocationId == null &&
-                                       m.ToLocationId == location.Id &&
-                                       m.PerformedByPersonnelId == personnel.Id &&
-                                       m.EventType == "INITIAL_REGISTRATION");
+                    Id = Guid.NewGuid().ToString(),
+                    InventoryItemId = newItem.Id,
+                    FromLocationId = null,
+                    ToLocationId = location.Id,
+                    PerformedByPersonnelId = personnel.Id,
+                    EventType = MovementEventType.InitialRegistration,
+                    MovedAtUtc = now,
+                    IdempotencyKey = idempotencyKey
+                });
 
-                    if (!movementExists ||
-                        existingAttempt.SerialNumber != serialClean ||
-                        existingAttempt.TagNumber != tagClean ||
-                        existingAttempt.LocationId != location.Id ||
-                        existingAttempt.RegisteredByPersonnelId != personnel.Id)
-                    {
-                        throw new InvalidOperationException(
-                            "The prior registration attempt did not persist the expected item and initial movement.");
-                    }
+                audit.Add(AuditAction.Create, AuditEntity.InventoryItem, newItem.Id,
+                    newValue: new { newItem.SerialNumber, newItem.TagNumber, newItem.LocationId, newItem.RegisteredByPersonnelId },
+                    referenceNo: newItem.SerialNumber);
 
-                    return MapToResponse(existingAttempt);
-                }
-
-                await using var transaction = await _context.Database.BeginTransactionAsync();
-                try
-                {
-                    var newItem = new InventoryItem
-                    {
-                        Id = itemId,
-                        SerialNumber = serialClean,
-                        TagNumber = tagClean,
-                        LocationId = location.Id,
-                        RegisteredByPersonnelId = personnel.Id,
-                        CreatedAt = DateTime.UtcNow,
-                        UpdatedAt = DateTime.UtcNow
-                    };
-
-                    var initialMovement = new InventoryMovement
-                    {
-                        Id = movementId,
-                        InventoryItemId = newItem.Id,
-                        FromLocationId = null,
-                        ToLocationId = location.Id,
-                        PerformedByPersonnelId = personnel.Id,
-                        EventType = "INITIAL_REGISTRATION",
-                        MovedAt = DateTime.UtcNow
-                    };
-
-                    _context.InventoryItems.Add(newItem);
-                    _context.InventoryMovements.Add(initialMovement);
-
-                    await _context.SaveChangesAsync();
-                    await transaction.CommitAsync();
-
-                    return new InventoryItemResponse
-                    {
-                        Id = newItem.Id,
-                        SerialNumber = newItem.SerialNumber,
-                        TagNumber = newItem.TagNumber,
-                        LocationId = newItem.LocationId,
-                        LocationCode = location.LocationCode,
-                        LocationName = location.LocationName,
-                        RegisteredByPersonnelId = newItem.RegisteredByPersonnelId,
-                        RegisteredByPersonnelCode = personnel.PersonnelCode,
-                        RegisteredByPersonnelName = personnel.Name,
-                        CreatedAt = newItem.CreatedAt,
-                        UpdatedAt = newItem.UpdatedAt
-                    };
-                }
-                catch
-                {
-                    try
-                    {
-                        await transaction.RollbackAsync();
-                    }
-                    catch (Exception rollbackException)
-                    {
-                        _logger.LogError(rollbackException, "Failed to roll back inventory registration transaction.");
-                    }
-                    _context.ChangeTracker.Clear();
-                    throw;
-                }
+                await db.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
             });
-
-            _logger.LogInformation("Item successfully registered: Serial={Serial}, Tag={Tag}, Loc={Loc}, By={By}",
-                created.SerialNumber, created.TagNumber, location.LocationCode, personnel.PersonnelCode);
-
-            return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
         }
-        catch (DbUpdateException dbEx)
+        catch (DbUpdateException ex)
         {
-            _logger.LogError(dbEx, "Database concurrency or constraint error registering item.");
-            return Conflict(new { message = "Registration failed due to a concurrent database constraint violation. Please verify identifier uniqueness." });
+            if (idempotencyKey is not null) idempotency.Release(idempotencyKey);
+            logger.LogError(ex, "Constraint violation registering item {Serial}.", serialClean);
+
+            // A racing request may have taken the serial or tag between the check and the insert.
+            var raced = await FindDuplicateAsync(serialClean, tagClean, ct);
+            return raced is not null ? Conflict(raced) : Conflict(new { error = ConcurrentWriteMessage });
         }
-        catch (Exception ex)
+        catch
         {
-            _logger.LogError(ex, "Unexpected error registering item.");
-            return StatusCode(500, new { message = "An internal server error occurred while persisting the inventory item." });
+            if (idempotencyKey is not null) idempotency.Release(idempotencyKey);
+            throw;
         }
+
+        logger.LogInformation("Item registered: Serial={Serial}, Tag={Tag}, Loc={Loc}, By={By}",
+            newItem.SerialNumber, newItem.TagNumber, location.LocationCode, personnel.PersonnelCode);
+
+        var created = new InventoryItemResponse
+        {
+            Id = newItem.Id,
+            SerialNumber = newItem.SerialNumber,
+            TagNumber = newItem.TagNumber,
+            LocationId = newItem.LocationId,
+            LocationCode = location.LocationCode,
+            LocationName = location.LocationName,
+            RegisteredByPersonnelId = newItem.RegisteredByPersonnelId,
+            RegisteredByPersonnelCode = personnel.PersonnelCode,
+            RegisteredByPersonnelName = personnel.Name,
+            IsIssued = false,
+            CreatedAt = newItem.CreatedAtUtc,
+            UpdatedAt = newItem.UpdatedAtUtc
+        };
+
+        return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
     }
 
     // POST: /api/inventory/issue
     [HttpPost("issue")]
     public async Task<ActionResult<IssueInventoryResponse>> IssueForPacking(
-        [FromBody] IssueInventoryRequest request)
+        [FromBody] IssueInventoryRequest request,
+        CancellationToken ct)
     {
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(ModelState);
-        }
-
         var serialClean = request.SerialNumber.Trim();
         var tagClean = request.TagNumber.Trim();
         var personnelId = request.PerformedByPersonnelId.Trim();
+
         if (string.IsNullOrWhiteSpace(serialClean) ||
             string.IsNullOrWhiteSpace(tagClean) ||
             string.IsNullOrWhiteSpace(personnelId))
         {
-            return BadRequest(new { message = "Serial number, tag number, and responsible personnel are required." });
+            return BadRequest(new { error = "Serial number, tag number, and responsible personnel are required." });
         }
 
-        var movementId = Guid.NewGuid().ToString();
-        var issuedAt = DateTime.UtcNow;
-        var executionStrategy = _context.Database.CreateExecutionStrategy();
+        var idempotencyKey = ReadIdempotencyKey();
+        if (idempotencyKey is not null)
+        {
+            // Replayed key: hand back the movement the first attempt recorded.
+            var replay = await ReadIssueReplayAsync(idempotencyKey, ct);
+            if (replay is not null) return Ok(replay);
+
+            if (!idempotency.TryBegin(idempotencyKey))
+            {
+                return Conflict(new { error = "That request is already being processed. Wait a moment and check the item history." });
+            }
+        }
 
         try
         {
-            var result = await executionStrategy.ExecuteAsync(async () =>
+            var item = await db.InventoryItems
+                .AsNoTracking()
+                .Include(i => i.Location)
+                .FirstOrDefaultAsync(i => i.SerialNumber == serialClean && i.TagNumber == tagClean, ct);
+
+            if (item is null)
             {
-                _context.ChangeTracker.Clear();
-                await using var transaction = await _context.Database.BeginTransactionAsync();
+                return NotFound(new { error = "No inventory item matches both identifiers." });
+            }
 
-                try
+            var personnel = await db.Personnel.AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == personnelId, ct);
+            if (personnel is null || !personnel.IsActive)
+            {
+                return BadRequest(new { error = "Responsible personnel does not exist or is inactive." });
+            }
+
+            if (item.IsIssued)
+            {
+                return Conflict(new { error = "This inventory item has already been issued." });
+            }
+
+            var issuedAt = timeProvider.GetUtcNow().UtcDateTime;
+            var movement = new InventoryMovement
+            {
+                Id = Guid.NewGuid().ToString(),
+                InventoryItemId = item.Id,
+                FromLocationId = item.LocationId,
+                ToLocationId = null,
+                PerformedByPersonnelId = personnel.Id,
+                EventType = MovementEventType.IssueForPacking,
+                MovedAtUtc = issuedAt,
+                IdempotencyKey = idempotencyKey
+            };
+
+            var issued = false;
+            var strategy = db.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
+            {
+                await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+                // The IsIssued guard inside the update is what makes a double-issue impossible.
+                var updated = await db.InventoryItems
+                    .Where(i => i.Id == item.Id && !i.IsIssued)
+                    .ExecuteUpdateAsync(set => set
+                        .SetProperty(i => i.IsIssued, true)
+                        .SetProperty(i => i.UpdatedAtUtc, issuedAt), ct);
+
+                if (updated != 1)
                 {
-                    var item = await _context.InventoryItems
-                        .Include(i => i.Location)
-                        .AsNoTracking()
-                        .FirstOrDefaultAsync(i =>
-                            i.SerialNumber == serialClean &&
-                            i.TagNumber == tagClean);
-
-                    if (item == null)
-                    {
-                        await transaction.CommitAsync();
-                        return new IssueAttemptResult(
-                            null,
-                            StatusCodes.Status404NotFound,
-                            "No inventory item matches both identifiers.");
-                    }
-
-                    var personnel = await _context.Personnel
-                        .AsNoTracking()
-                        .FirstOrDefaultAsync(p => p.Id == personnelId);
-
-                    if (personnel == null || !personnel.IsActive)
-                    {
-                        await transaction.CommitAsync();
-                        return new IssueAttemptResult(
-                            null,
-                            StatusCodes.Status400BadRequest,
-                            "Responsible personnel does not exist or is inactive.");
-                    }
-
-                    if (item.IsIssued)
-                    {
-                        var previousAttempt = await _context.InventoryMovements
-                            .AsNoTracking()
-                            .FirstOrDefaultAsync(m => m.Id == movementId);
-
-                        if (previousAttempt != null &&
-                            previousAttempt.InventoryItemId == item.Id &&
-                            previousAttempt.FromLocationId == item.LocationId &&
-                            previousAttempt.ToLocationId == null &&
-                            previousAttempt.PerformedByPersonnelId == personnel.Id &&
-                            previousAttempt.EventType == "ISSUE_FOR_PACKING")
-                        {
-                            await transaction.CommitAsync();
-                            return new IssueAttemptResult(
-                                CreateIssueResponse(item, personnel, movementId, previousAttempt.MovedAt),
-                                null,
-                                null);
-                        }
-
-                        await transaction.CommitAsync();
-                        return new IssueAttemptResult(
-                            null,
-                            StatusCodes.Status409Conflict,
-                            "This inventory item has already been issued.");
-                    }
-
-                    var updatedRows = await _context.InventoryItems
-                        .Where(i =>
-                            i.Id == item.Id &&
-                            i.SerialNumber == serialClean &&
-                            i.TagNumber == tagClean &&
-                            !i.IsIssued)
-                        .ExecuteUpdateAsync(update => update
-                            .SetProperty(i => i.IsIssued, true)
-                            .SetProperty(i => i.UpdatedAt, issuedAt));
-
-                    if (updatedRows != 1)
-                    {
-                        await transaction.CommitAsync();
-                        return new IssueAttemptResult(
-                            null,
-                            StatusCodes.Status409Conflict,
-                            "This inventory item has already been issued.");
-                    }
-
-                    var movement = new InventoryMovement
-                    {
-                        Id = movementId,
-                        InventoryItemId = item.Id,
-                        FromLocationId = item.LocationId,
-                        ToLocationId = null,
-                        PerformedByPersonnelId = personnel.Id,
-                        EventType = "ISSUE_FOR_PACKING",
-                        MovedAt = issuedAt
-                    };
-
-                    _context.InventoryMovements.Add(movement);
-                    await _context.SaveChangesAsync();
-                    await transaction.CommitAsync();
-
-                    item.IsIssued = true;
-                    item.UpdatedAt = issuedAt;
-                    return new IssueAttemptResult(
-                        CreateIssueResponse(item, personnel, movement.Id, movement.MovedAt),
-                        null,
-                        null);
+                    await tx.RollbackAsync(ct);
+                    return;
                 }
-                catch
-                {
-                    try
-                    {
-                        await transaction.RollbackAsync();
-                    }
-                    catch (Exception rollbackException)
-                    {
-                        _logger.LogError(rollbackException, "Failed to roll back inventory issue transaction.");
-                    }
 
-                    _context.ChangeTracker.Clear();
-                    throw;
-                }
+                db.InventoryMovements.Add(movement);
+                audit.Add(AuditAction.Post, AuditEntity.InventoryItem, item.Id,
+                    previousValue: new { IsIssued = false },
+                    newValue: new { IsIssued = true },
+                    referenceNo: item.SerialNumber,
+                    remarks: $"Issued for packing by {personnel.Name}.");
+
+                await db.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+                issued = true;
             });
 
-            if (result.ErrorStatusCode.HasValue)
+            if (!issued)
             {
-                var error = new { message = result.ErrorMessage };
-                return result.ErrorStatusCode.Value switch
+                return Conflict(new { error = "This inventory item has already been issued." });
+            }
+
+            item.IsIssued = true;
+            item.UpdatedAtUtc = issuedAt;
+
+            var response = new IssueInventoryResponse
+            {
+                Item = new InventoryItemIdentificationResponse
                 {
-                    StatusCodes.Status400BadRequest => BadRequest(error),
-                    StatusCodes.Status404NotFound => NotFound(error),
-                    StatusCodes.Status409Conflict => Conflict(error),
-                    _ => StatusCode(StatusCodes.Status500InternalServerError,
-                        new { message = "An internal server error occurred while issuing the inventory item." })
-                };
-            }
+                    Id = item.Id,
+                    SerialNumber = item.SerialNumber,
+                    TagNumber = item.TagNumber,
+                    LocationId = item.LocationId,
+                    LocationCode = item.Location.LocationCode,
+                    LocationName = item.Location.LocationName,
+                    IsIssued = true
+                },
+                Movement = new InventoryMovementResponse
+                {
+                    Id = movement.Id,
+                    InventoryItemId = item.Id,
+                    FromLocationId = item.LocationId,
+                    FromLocationName = item.Location.LocationName,
+                    ToLocationId = null,
+                    ToLocationName = null,
+                    PerformedByPersonnelId = personnel.Id,
+                    PerformedByPersonnelName = personnel.Name,
+                    EventType = MovementEventType.IssueForPacking,
+                    MovedAt = issuedAt
+                }
+            };
 
-            if (result.Response == null)
-            {
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    new { message = "An internal server error occurred while issuing the inventory item." });
-            }
-
-            return CreatedAtAction(
-                nameof(GetItemHistory),
-                new { id = result.Response.Item.Id },
-                result.Response);
+            return CreatedAtAction(nameof(GetItemHistory), new { id = item.Id }, response);
         }
-        catch (Exception ex)
+        catch (DbUpdateException ex)
         {
-            _logger.LogError(ex, "Unexpected error issuing item for packing.");
-            return StatusCode(StatusCodes.Status500InternalServerError,
-                new { message = "An internal server error occurred while issuing the inventory item." });
+            if (idempotencyKey is not null) idempotency.Release(idempotencyKey);
+            logger.LogError(ex, "Constraint violation issuing item {Serial}.", serialClean);
+            return Conflict(new { error = ConcurrentWriteMessage });
+        }
+        catch
+        {
+            if (idempotencyKey is not null) idempotency.Release(idempotencyKey);
+            throw;
         }
     }
 
     // GET: /api/inventory/{id}/history
     [HttpGet("{id}/history")]
-    public async Task<ActionResult<IEnumerable<InventoryMovementResponse>>> GetItemHistory(string id)
+    public async Task<ActionResult<IEnumerable<InventoryMovementResponse>>> GetItemHistory(
+        string id,
+        CancellationToken ct)
     {
-        var itemExists = await _context.InventoryItems.AnyAsync(i => i.Id == id);
+        var itemExists = await db.InventoryItems.AnyAsync(i => i.Id == id, ct);
         if (!itemExists)
         {
-            return NotFound(new { message = $"Inventory item '{id}' does not exist." });
+            return NotFound(new { error = $"Inventory item '{id}' does not exist." });
         }
 
-        var history = await _context.InventoryMovements
-            .Include(m => m.FromLocation)
-            .Include(m => m.ToLocation)
-            .Include(m => m.PerformedByPersonnel)
-            .Where(m => m.InventoryItemId == id)
-            .OrderByDescending(m => m.MovedAt)
+        var history = await HistoryQuery(db, id).ToListAsync(ct);
+
+        return Ok(history);
+    }
+
+    internal static IQueryable<InventoryItemResponse> PageQuery(
+        InventoryDbContext db, string? locationId, int page, int pageSize)
+    {
+        var query = db.InventoryItems.AsNoTracking();
+        if (!string.IsNullOrWhiteSpace(locationId)) query = query.Where(i => i.LocationId == locationId);
+
+        // One extra row tells the client whether another page exists.
+        return query
+            .OrderByDescending(i => i.CreatedAtUtc)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize + 1)
+            .Select(ItemProjection);
+    }
+
+    internal static IQueryable<InventoryItemResponse> SearchQuery(
+        InventoryDbContext db, string containsPattern, string? locationId)
+    {
+        var query = db.InventoryItems
+            .AsNoTracking()
+            .Where(i => EF.Functions.Like(i.SerialNumber, containsPattern, "\\")
+                        || EF.Functions.Like(i.TagNumber, containsPattern, "\\"));
+        if (!string.IsNullOrWhiteSpace(locationId)) query = query.Where(i => i.LocationId == locationId);
+
+        return query
+            .OrderByDescending(i => i.CreatedAtUtc)
+            .Take(SearchResultLimit)
+            .Select(ItemProjection);
+    }
+
+    internal static IQueryable<InventoryMovementResponse> HistoryQuery(InventoryDbContext db, string itemId) =>
+        db.InventoryMovements
+            .AsNoTracking()
+            .Where(m => m.InventoryItemId == itemId)
+            .OrderByDescending(m => m.MovedAtUtc)
             .Select(m => new InventoryMovementResponse
             {
                 Id = m.Id,
@@ -526,73 +444,98 @@ public class InventoryController : ControllerBase
                 PerformedByPersonnelId = m.PerformedByPersonnelId,
                 PerformedByPersonnelName = m.PerformedByPersonnel.Name,
                 EventType = m.EventType,
-                MovedAt = m.MovedAt
-            })
-            .ToListAsync();
+                MovedAt = m.MovedAtUtc
+            });
 
-        return Ok(history);
-    }
+    private string? ReadIdempotencyKey() =>
+        InventoryRules.NormalizeIdempotencyKey(Request.Headers[IdempotencyHeader].ToString());
 
-    private static InventoryItemResponse MapToResponse(InventoryItem item)
+    private async Task<IssueInventoryResponse?> ReadIssueReplayAsync(string key, CancellationToken ct)
     {
-        return new InventoryItemResponse
-        {
-            Id = item.Id,
-            SerialNumber = item.SerialNumber,
-            TagNumber = item.TagNumber,
-            LocationId = item.LocationId,
-            LocationCode = item.Location?.LocationCode ?? string.Empty,
-            LocationName = item.Location?.LocationName ?? string.Empty,
-            RegisteredByPersonnelId = item.RegisteredByPersonnelId,
-            RegisteredByPersonnelCode = item.RegisteredByPersonnel?.PersonnelCode ?? string.Empty,
-            RegisteredByPersonnelName = item.RegisteredByPersonnel?.Name ?? string.Empty,
-            IsIssued = item.IsIssued,
-            CreatedAt = item.CreatedAt,
-            UpdatedAt = item.UpdatedAt
-        };
-    }
-
-    private static InventoryItemIdentificationResponse MapToIdentificationResponse(InventoryItem item)
-    {
-        return new InventoryItemIdentificationResponse
-        {
-            Id = item.Id,
-            SerialNumber = item.SerialNumber,
-            TagNumber = item.TagNumber,
-            LocationId = item.LocationId,
-            LocationCode = item.Location.LocationCode,
-            LocationName = item.Location.LocationName,
-            IsIssued = item.IsIssued
-        };
-    }
-
-    private static IssueInventoryResponse CreateIssueResponse(
-        InventoryItem item,
-        Personnel personnel,
-        string movementId,
-        DateTime movedAt)
-    {
-        return new IssueInventoryResponse
-        {
-            Item = MapToIdentificationResponse(item),
-            Movement = new InventoryMovementResponse
+        var movement = await db.InventoryMovements
+            .AsNoTracking()
+            .Where(m => m.IdempotencyKey == key && m.EventType == MovementEventType.IssueForPacking)
+            .Select(m => new
             {
-                Id = movementId,
-                InventoryItemId = item.Id,
-                FromLocationId = item.LocationId,
-                FromLocationName = item.Location.LocationName,
-                ToLocationId = null,
-                ToLocationName = null,
-                PerformedByPersonnelId = personnel.Id,
-                PerformedByPersonnelName = personnel.Name,
-                EventType = "ISSUE_FOR_PACKING",
-                MovedAt = movedAt
-            }
-        };
+                Movement = new InventoryMovementResponse
+                {
+                    Id = m.Id,
+                    InventoryItemId = m.InventoryItemId,
+                    FromLocationId = m.FromLocationId,
+                    FromLocationName = m.FromLocation != null ? m.FromLocation.LocationName : null,
+                    ToLocationId = m.ToLocationId,
+                    ToLocationName = m.ToLocation != null ? m.ToLocation.LocationName : null,
+                    PerformedByPersonnelId = m.PerformedByPersonnelId,
+                    PerformedByPersonnelName = m.PerformedByPersonnel.Name,
+                    EventType = m.EventType,
+                    MovedAt = m.MovedAtUtc
+                },
+                Item = new InventoryItemIdentificationResponse
+                {
+                    Id = m.InventoryItem.Id,
+                    SerialNumber = m.InventoryItem.SerialNumber,
+                    TagNumber = m.InventoryItem.TagNumber,
+                    LocationId = m.InventoryItem.LocationId,
+                    LocationCode = m.InventoryItem.Location.LocationCode,
+                    LocationName = m.InventoryItem.Location.LocationName,
+                    IsIssued = m.InventoryItem.IsIssued
+                }
+            })
+            .FirstOrDefaultAsync(ct);
+
+        return movement is null
+            ? null
+            : new IssueInventoryResponse { Item = movement.Item, Movement = movement.Movement };
     }
 
-    private sealed record IssueAttemptResult(
-        IssueInventoryResponse? Response,
-        int? ErrorStatusCode,
-        string? ErrorMessage);
+    private async Task<InventoryItemResponse?> FindByIdempotencyKeyAsync(string key, CancellationToken ct) =>
+        await db.InventoryMovements
+            .AsNoTracking()
+            .Where(m => m.IdempotencyKey == key)
+            .Select(m => m.InventoryItem)
+            .Select(ItemProjection)
+            .FirstOrDefaultAsync(ct);
+
+    private async Task<DuplicateConflictResponse?> FindDuplicateAsync(
+        string serial,
+        string tag,
+        CancellationToken ct)
+    {
+        var existing = await db.InventoryItems
+            .AsNoTracking()
+            .Where(i => i.SerialNumber == serial || i.TagNumber == tag)
+            .Select(ItemProjection)
+            .FirstOrDefaultAsync(ct);
+
+        return existing is null ? null : InventoryRules.DuplicateConflict(existing, serial, tag);
+    }
+
+    internal static readonly System.Linq.Expressions.Expression<Func<InventoryItem, InventoryItemResponse>> ItemProjection =
+        i => new InventoryItemResponse
+        {
+            Id = i.Id,
+            SerialNumber = i.SerialNumber,
+            TagNumber = i.TagNumber,
+            LocationId = i.LocationId,
+            LocationCode = i.Location.LocationCode,
+            LocationName = i.Location.LocationName,
+            RegisteredByPersonnelId = i.RegisteredByPersonnelId,
+            RegisteredByPersonnelCode = i.RegisteredByPersonnel.PersonnelCode,
+            RegisteredByPersonnelName = i.RegisteredByPersonnel.Name,
+            IsIssued = i.IsIssued,
+            CreatedAt = i.CreatedAtUtc,
+            UpdatedAt = i.UpdatedAtUtc
+        };
+
+    internal static readonly System.Linq.Expressions.Expression<Func<InventoryItem, InventoryItemIdentificationResponse>> IdentificationProjection =
+        i => new InventoryItemIdentificationResponse
+        {
+            Id = i.Id,
+            SerialNumber = i.SerialNumber,
+            TagNumber = i.TagNumber,
+            LocationId = i.LocationId,
+            LocationCode = i.Location.LocationCode,
+            LocationName = i.Location.LocationName,
+            IsIssued = i.IsIssued
+        };
 }

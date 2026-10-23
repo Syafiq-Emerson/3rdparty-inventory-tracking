@@ -1,0 +1,11 @@
+{
+  // The MIT C# extension plus the coreclr debugger. C# Dev Kit is deliberately not used.
+  "recommendations": [
+    "ms-dotnettools.csharp",
+    "bradlc.vscode-tailwindcss",
+    "oxc.oxc-vscode"
+  ],
+  "unwantedRecommendations": [
+    "ms-dotnettools.csdevkit"
+  ]
+}

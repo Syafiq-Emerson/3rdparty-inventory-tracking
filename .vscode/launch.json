@@ -1,0 +1,71 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Debug the API on its own. Swagger opens once Kestrel reports its address.
+      "name": "Server",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/backend/IndustrialInventory.Api/bin/Debug/net10.0/IndustrialInventory.Api.dll",
+      "cwd": "${workspaceFolder}/backend/IndustrialInventory.Api",
+      "stopAtEntry": false,
+      "console": "internalConsole",
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "\\bNow listening on:\\s+(https?://\\S+)",
+        "uriFormat": "%s/swagger"
+      }
+    },
+    {
+      // Starts the API without opening a browser, for use inside the compound below.
+      "name": "Server (no browser)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/backend/IndustrialInventory.Api/bin/Debug/net10.0/IndustrialInventory.Api.dll",
+      "cwd": "${workspaceFolder}/backend/IndustrialInventory.Api",
+      "stopAtEntry": false,
+      "console": "internalConsole",
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    },
+    {
+      // Vite dev server on :3000. It proxies /api to the backend, so both must be running.
+      "name": "Vite",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "console": "internalConsole",
+      "skipFiles": ["<node_internals>/**"],
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "Local:\\s+(https?://\\S+)"
+      }
+    },
+    {
+      // Attach to an already-running API (for example one started with `dotnet run`).
+      "name": "Attach to Server",
+      "type": "coreclr",
+      "request": "attach",
+      "processName": "IndustrialInventory.Api"
+    }
+  ],
+  "compounds": [
+    {
+      // The usual way to run the app: API + client together, browser opens on :3000.
+      "name": "Server + Vite",
+      "configurations": ["Server (no browser)", "Vite"],
+      "stopAll": true,
+      "presentation": {
+        "order": 1
+      }
+    }
+  ]
+}

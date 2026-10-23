@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="backend/IndustrialInventory.Api/IndustrialInventory.Api.csproj" />
+  <Project Path="backend/IndustrialInventory.Api.Tests/IndustrialInventory.Api.Tests.csproj" />
+</Solution>

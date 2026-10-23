@@ -1,4 +1,4 @@
-import { ScanClassificationResult, ScanClassificationType } from '../types/inventory';
+import { ScanClassificationResult } from '../types/inventory';
 
 /**
  * Barcode Classification Engine
@@ -94,6 +94,91 @@ export function classifyBarcode(
     raw: value,
     reason: 'Could not definitively distinguish between Serial Number and Tag Number',
   };
+}
+
+export interface ScanSlots {
+  serial: string;
+  tag: string;
+}
+
+export type ScanTone = 'success' | 'warning' | 'info';
+
+export interface ScanPlacement {
+  slots: ScanSlots;
+  changed: boolean;
+  message: string;
+  tone: ScanTone;
+}
+
+const sameValue = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * Decides where one scanned barcode goes, in either scan order. A filled field is never overwritten:
+ * the operator has to clear or swap it first. Returns null for an empty scan.
+ */
+export function placeScan(
+  current: ScanSlots,
+  rawText: string,
+  rules: ClassificationRules = defaultClassificationRules
+): ScanPlacement | null {
+  const text = rawText.trim();
+  if (!text) return null;
+
+  const serial = current.serial.trim();
+  const tag = current.tag.trim();
+  const { type } = classifyBarcode(text, rules);
+  const keep = (message: string): ScanPlacement => ({ slots: current, changed: false, message, tone: 'warning' });
+
+  if (!serial && !tag) {
+    if (type === 'TAG_NUMBER') {
+      return {
+        slots: { serial: '', tag: text },
+        changed: true,
+        message: `Captured Tag Number "${text}". Waiting for Serial Number.`,
+        tone: 'info',
+      };
+    }
+    return {
+      slots: { serial: text, tag: '' },
+      changed: true,
+      message:
+        type === 'UNKNOWN'
+          ? `Captured "${text}" as Serial Number (format not recognised). Swap if it is the tag.`
+          : `Captured Serial Number "${text}". Waiting for Tag Number.`,
+      tone: type === 'UNKNOWN' ? 'warning' : 'info',
+    };
+  }
+
+  if (serial && !tag) {
+    if (sameValue(text, serial)) return keep(`Duplicate scan ignored: "${text}" is already the Serial Number.`);
+    if (type === 'SERIAL_NUMBER') {
+      return keep(`Serial Number is already filled. Clear or swap it before replacing it with "${text}".`);
+    }
+    return {
+      slots: { serial, tag: text },
+      changed: true,
+      message: `Captured Tag Number "${text}". Both identifiers are ready.`,
+      tone: 'success',
+    };
+  }
+
+  if (!serial && tag) {
+    if (sameValue(text, tag)) return keep(`Duplicate scan ignored: "${text}" is already the Tag Number.`);
+    if (type === 'TAG_NUMBER') {
+      return keep(`Tag Number is already filled. Clear or swap it before replacing it with "${text}".`);
+    }
+    return {
+      slots: { serial: text, tag },
+      changed: true,
+      message: `Captured Serial Number "${text}". Both identifiers are ready.`,
+      tone: 'success',
+    };
+  }
+
+  if (sameValue(text, serial) || sameValue(text, tag)) {
+    return keep(`Duplicate scan ignored: "${text}" is already captured.`);
+  }
+  return keep(`Both fields are already filled (Serial ${serial}, Tag ${tag}). Clear a field before scanning again.`);
 }
 
 /**

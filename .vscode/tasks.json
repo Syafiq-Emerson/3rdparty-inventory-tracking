@@ -1,0 +1,199 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build",
+      "command": "dotnet",
+      "type": "process",
+      "args": [
+        "build",
+        "${workspaceFolder}/backend/IndustrialInventory.Api/IndustrialInventory.Api.csproj",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "watch",
+      "command": "dotnet",
+      "type": "process",
+      "args": [
+        "watch",
+        "run",
+        "--project",
+        "${workspaceFolder}/backend/IndustrialInventory.Api/IndustrialInventory.Api.csproj"
+      ],
+      "options": {
+        "env": {
+          "ASPNETCORE_ENVIRONMENT": "Development"
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "publish",
+      "detail": "Builds the client and deploys to IIS: countdown, app_offline.htm, copy, back online.",
+      "command": "dotnet",
+      "type": "process",
+      "args": [
+        "publish",
+        "${workspaceFolder}/backend/IndustrialInventory.Api/IndustrialInventory.Api.csproj",
+        "-c",
+        "Release",
+        "-p:PublishProfile=DeployIIS",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary"
+      ],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "test",
+      "command": "dotnet",
+      "type": "process",
+      "args": ["test", "${workspaceFolder}/IndustrialInventory.slnx"],
+      "group": "test",
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "db: restore tools",
+      "detail": "Restores the pinned dotnet-ef CLI. Run once after cloning.",
+      "command": "dotnet",
+      "type": "process",
+      "args": ["tool", "restore"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "db: add migration",
+      "detail": "Scaffolds a new EF Core migration; prompts for the name.",
+      "command": "dotnet",
+      "type": "process",
+      "args": ["ef", "migrations", "add", "${input:migrationName}"],
+      "options": {
+        "cwd": "${workspaceFolder}/backend/IndustrialInventory.Api",
+        "env": {
+          "ASPNETCORE_ENVIRONMENT": "Development"
+        }
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "db: update",
+      "detail": "Applies pending migrations to the configured database.",
+      "command": "dotnet",
+      "type": "process",
+      "args": ["ef", "database", "update"],
+      "options": {
+        "cwd": "${workspaceFolder}/backend/IndustrialInventory.Api",
+        "env": {
+          "ASPNETCORE_ENVIRONMENT": "Development"
+        }
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "db: script (idempotent)",
+      "detail": "Writes migration.sql for DBA review instead of applying anything.",
+      "command": "dotnet",
+      "type": "process",
+      "args": ["ef", "migrations", "script", "--idempotent", "--output", "migration.sql"],
+      "options": {
+        "cwd": "${workspaceFolder}/backend/IndustrialInventory.Api",
+        "env": {
+          "ASPNETCORE_ENVIRONMENT": "Development"
+        }
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "db: set admin password",
+      "detail": "One-time setup for the seeded admin account. Prompts in the terminal.",
+      "command": "dotnet",
+      "type": "process",
+      "args": ["run", "--", "set-admin-password"],
+      "options": {
+        "cwd": "${workspaceFolder}/backend/IndustrialInventory.Api"
+      },
+      "presentation": {
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "client: install",
+      "type": "shell",
+      "command": "npm install",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "client: dev",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "vite",
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*VITE.*",
+          "endsPattern": ".*Local:.*"
+        }
+      }
+    },
+    {
+      "label": "client: lint",
+      "detail": "oxlint + tsc --noEmit",
+      "type": "shell",
+      "command": "npm run lint",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "client: test",
+      "detail": "vitest run",
+      "type": "shell",
+      "command": "npm test",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "client: build",
+      "type": "shell",
+      "command": "npm run build",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": ["$tsc"]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "migrationName",
+      "type": "promptString",
+      "description": "Migration name (PascalCase, e.g. AddSupplierTable)"
+    }
+  ]
+}

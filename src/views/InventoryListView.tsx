@@ -1,100 +1,96 @@
-import React, { useEffect, useState } from 'react';
-import {
-  Search,
-  Filter,
-  Download,
-  Eye,
-  RefreshCw,
-  Building2,
-  Calendar,
-  User,
-  Hash,
-  ChevronLeft,
-  ChevronRight,
-  SlidersHorizontal,
-} from 'lucide-react';
-import { InventoryItem, StoreLocation } from '../types/inventory';
-import { inventoryApi } from '../services/api';
+import React, { useState } from 'react';
+import { Search, Download, Eye } from 'lucide-react';
+import { InventoryItem } from '../types/inventory';
+import { errorMessage, inventoryApi } from '../services/api';
+import { useAsync } from '../hooks/useAsync';
+import { toCsv } from '../utils/csv';
+import { saveBlob } from '../utils/download';
+
+const PAGE_SIZE = 50;
 
 interface Props {
   onInspectItem: (itemId: string) => void;
   onNavigateToRegister: () => void;
 }
 
+/** Pages fetched with "Load more", tagged with the filter they belong to. */
+interface ExtraPages {
+  filter: string;
+  items: InventoryItem[];
+  hasMore: boolean;
+  page: number;
+}
+
 export const InventoryListView: React.FC<Props> = ({ onInspectItem, onNavigateToRegister }) => {
-  const [items, setItems] = useState<InventoryItem[]>([]);
-  const [locations, setLocations] = useState<StoreLocation[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [activeSearch, setActiveSearch] = useState<string>('');
   const [selectedLocationId, setSelectedLocationId] = useState<string>('');
+  const [extra, setExtra] = useState<ExtraPages | null>(null);
+  const [loadingMore, setLoadingMore] = useState<boolean>(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
 
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: locationData } = useAsync(() => inventoryApi.getLocations(), null, 'Failed to load store locations.');
+  const locations = locationData ?? [];
 
-  // Pagination
-  const [currentPage, setCurrentPage] = useState<number>(1);
-  const pageSize = 15;
+  // Changing the search or location starts again from page 1.
+  const filter = JSON.stringify([activeSearch, selectedLocationId]);
+  const { data: firstPage, loading, error } = useAsync(
+    () =>
+      activeSearch
+        ? inventoryApi.searchInventory(activeSearch, selectedLocationId || undefined)
+        : inventoryApi.getInventory(selectedLocationId || undefined, 1, PAGE_SIZE),
+    filter,
+    'Failed to query inventory records.',
+  );
 
-  const loadData = async () => {
-    setLoading(true);
-    setError(null);
+  const current = extra?.filter === filter ? extra : null;
+  const items = [...(firstPage?.items ?? []), ...(current?.items ?? [])];
+  const hasMore = current ? current.hasMore : (firstPage?.hasMore ?? false);
+  const page = current?.page ?? 1;
+
+  const handleLoadMore = async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    setLoadMoreError(null);
     try {
-      const [locationsData, itemsData] = await Promise.all([
-        inventoryApi.getLocations(),
-        searchQuery.trim()
-          ? inventoryApi.searchInventory(searchQuery.trim(), selectedLocationId || undefined)
-          : inventoryApi.getInventory(selectedLocationId || undefined),
-      ]);
-      setLocations(locationsData);
-      setItems(itemsData);
-    } catch (err: any) {
-      setError(err.message || 'Failed to query inventory records.');
+      const next = page + 1;
+      const pageData = await inventoryApi.getInventory(selectedLocationId || undefined, next, PAGE_SIZE);
+      setExtra({ filter, items: [...(current?.items ?? []), ...pageData.items], hasMore: pageData.hasMore, page: next });
+    } catch (cause: unknown) {
+      setLoadMoreError(errorMessage(cause, 'Failed to load more records.'));
     } finally {
-      setLoading(false);
+      setLoadingMore(false);
     }
   };
 
-  useEffect(() => {
-    loadData();
-  }, [selectedLocationId]);
-
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setCurrentPage(1);
-    loadData();
+    setActiveSearch(searchQuery.trim());
   };
 
   const handleResetFilters = () => {
     setSearchQuery('');
+    setActiveSearch('');
     setSelectedLocationId('');
-    setCurrentPage(1);
   };
 
   const handleExportCsv = () => {
     if (items.length === 0) return;
 
-    const headers = ['Serial Number', 'Tag Number', 'Location Code', 'Location Name', 'Registered By', 'Date Created'];
-    const rows = items.map((i) => [
-      `"${i.serialNumber}"`,
-      `"${i.tagNumber}"`,
-      `"${i.locationCode}"`,
-      `"${i.locationName}"`,
-      `"${i.registeredByPersonnelName}"`,
-      `"${new Date(i.createdAt).toISOString()}"`,
-    ]);
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `inventory_export_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const csv = toCsv(
+      ['Serial Number', 'Tag Number', 'Location Code', 'Location Name', 'Status', 'Registered By', 'Date Created (UTC)'],
+      items.map((i) => [
+        i.serialNumber,
+        i.tagNumber,
+        i.locationCode,
+        i.locationName,
+        i.isIssued ? 'Issued for packing' : 'Available',
+        i.registeredByPersonnelName,
+        new Date(i.createdAt).toISOString(),
+      ]),
+    );
+    saveBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `inventory_export_${new Date().toISOString().slice(0, 10)}.csv`);
   };
-
-  // Client-side pagination slicing of retrieved query page
-  const totalPages = Math.ceil(items.length / pageSize) || 1;
-  const paginatedItems = items.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   return (
     <div className="space-y-6">
@@ -147,10 +143,7 @@ export const InventoryListView: React.FC<Props> = ({ onInspectItem, onNavigateTo
           <div className="w-full md:w-64">
             <select
               value={selectedLocationId}
-              onChange={(e) => {
-                setSelectedLocationId(e.target.value);
-                setCurrentPage(1);
-              }}
+              onChange={(e) => setSelectedLocationId(e.target.value)}
               className="w-full py-2 px-3 bg-slate-50/50 border border-slate-300 rounded text-xs text-slate-900 focus:bg-white focus:border-[#004B87] outline-hidden transition-colors"
             >
               <option value="">All Store Locations</option>
@@ -228,7 +221,7 @@ export const InventoryListView: React.FC<Props> = ({ onInspectItem, onNavigateTo
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {paginatedItems.map((item) => (
+                  {items.map((item) => (
                     <tr
                       key={item.id}
                       className="hover:bg-slate-50/80 transition-colors"
@@ -302,35 +295,24 @@ export const InventoryListView: React.FC<Props> = ({ onInspectItem, onNavigateTo
               </table>
             </div>
 
-            {/* Pagination Controls */}
+            {/* Load-more footer: the server decides whether another page exists. */}
             <div className="flex items-center justify-between px-5 py-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-600">
               <div>
-                Showing <span className="font-mono font-semibold">{(currentPage - 1) * pageSize + 1}</span> to{' '}
-                <span className="font-mono font-semibold">{Math.min(currentPage * pageSize, items.length)}</span> of{' '}
-                <span className="font-mono font-semibold">{items.length}</span> units
+                <span className="font-mono font-semibold">{items.length}</span>{' '}
+                {hasMore ? 'loaded · scroll for more' : `record${items.length === 1 ? '' : 's'} loaded`}
+                {activeSearch && <span className="text-slate-400"> · search limited to 50 matches</span>}
+                {loadMoreError && <span className="text-red-700"> · {loadMoreError}</span>}
               </div>
 
-              <div className="flex items-center gap-2">
+              {hasMore && !activeSearch && (
                 <button
-                  onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
-                  disabled={currentPage === 1}
-                  className="p-1 border border-slate-300 rounded bg-white hover:bg-slate-50 disabled:opacity-40 disabled:pointer-events-none transition-colors"
-                  aria-label="Previous page"
+                  onClick={handleLoadMore}
+                  disabled={loadingMore}
+                  className="px-3 py-1.5 text-xs font-semibold text-[#004B87] border border-slate-300 rounded bg-white hover:bg-slate-50 disabled:opacity-40 disabled:pointer-events-none transition-colors"
                 >
-                  <ChevronLeft className="w-4 h-4" />
+                  {loadingMore ? 'Loading…' : 'Load more'}
                 </button>
-                <span className="font-mono font-medium px-2">
-                  Page {currentPage} of {totalPages}
-                </span>
-                <button
-                  onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
-                  disabled={currentPage === totalPages}
-                  className="p-1 border border-slate-300 rounded bg-white hover:bg-slate-50 disabled:opacity-40 disabled:pointer-events-none transition-colors"
-                  aria-label="Next page"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
+              )}
             </div>
           </>
         )}
