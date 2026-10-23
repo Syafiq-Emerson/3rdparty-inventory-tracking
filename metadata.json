@@ -1,6 +1,0 @@
-{
-  "name": "Industrial Inventory Management System",
-  "description": "Enterprise asset tracking and dual-barcode inventory registration system for industrial facilities.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
