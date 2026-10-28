@@ -8,8 +8,8 @@
     <RootNamespace>IndustrialInventory.Api</RootNamespace>
     <AssemblyName>IndustrialInventory.Api</AssemblyName>
     <UserSecretsId>6a5450ea-d232-4e15-a46e-9c5f80c480ca</UserSecretsId>
-    <Version>2.1.0</Version>
-    <InformationalVersion>2.1.0</InformationalVersion>
+    <Version>2.1.1</Version>
+    <InformationalVersion>2.1.1</InformationalVersion>
     <!-- The React client lives at the repo root; publish builds it and ships dist/ as wwwroot. -->
     <ClientRoot>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../../'))</ClientRoot>
   </PropertyGroup>

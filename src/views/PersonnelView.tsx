@@ -234,7 +234,7 @@ export const PersonnelView: React.FC = () => {
                   required
                   value={formCode}
                   onChange={(e) => setFormCode(e.target.value.toUpperCase())}
-                  placeholder="e.g. EMP-2088"
+                  placeholder="Personnel code"
                   className="w-full bg-white border border-slate-300 rounded px-3 py-2 text-xs font-mono uppercase focus:border-[#004B87] outline-hidden"
                 />
                 <span className="text-[11px] text-slate-400 mt-0.5 block">
@@ -251,7 +251,7 @@ export const PersonnelView: React.FC = () => {
                   required
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  placeholder="e.g. Jennifer Zhao (Field Tech II)"
+                  placeholder="Full name"
                   className="w-full bg-white border border-slate-300 rounded px-3 py-2 text-xs focus:border-[#004B87] outline-hidden"
                 />
                 <span className="text-[11px] text-slate-400 mt-0.5 block">

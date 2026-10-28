@@ -41,10 +41,10 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, onInspectItem }) =>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-slate-900">
-            Plant Inventory Telemetry & Dashboard
+            Inventory Dashboard
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Real-time asset tallies and distribution across physical store locations.
+            Asset totals and distribution across store locations.
           </p>
         </div>
 
@@ -71,7 +71,7 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, onInspectItem }) =>
       {loading && !summary ? (
         <div className="py-24 text-center text-slate-500 text-sm">
           <div className="animate-spin w-8 h-8 border-2 border-[#004B87] border-t-transparent rounded-full mx-auto mb-3" />
-          Querying relational database records...
+          Loading…
         </div>
       ) : error ? (
         <div className="p-4 bg-red-50 border border-red-200 rounded text-red-800 text-xs">
