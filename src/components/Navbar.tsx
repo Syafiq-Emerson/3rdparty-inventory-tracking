@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Menu, Database, Radio, Clock, MapPin, LogOut } from 'lucide-react';
+import { Menu, Database, Clock, MapPin, LogOut } from 'lucide-react';
 import emersonLogo from '../assets/emerson_logo.svg';
 
 interface Props {
@@ -61,26 +61,15 @@ export const Navbar: React.FC<Props> = ({ onToggleMobileSidebar, userName, onSig
 
       {/* Center/Right: Facility Context & Status Indicators */}
       <div className="ml-auto flex shrink-0 items-center gap-2 text-xs sm:gap-4">
-        {/* Facility Telemetry Context */}
-        <div className="hidden lg:flex items-center gap-3 text-slate-600 border-r border-slate-200 pr-4">
-          <span className="flex items-center gap-1.5 font-medium text-slate-700">
-            <Database className="w-3.5 h-3.5 text-[#004B87]" />
-            SQL Server
-          </span>
-          <span className="text-slate-300">·</span>
-          <span className="text-slate-600">Plant Unit 04 / Facility North</span>
+        <div className="hidden lg:flex items-center gap-1.5 font-medium text-slate-700 border-r border-slate-200 pr-4">
+          <Database className="w-3.5 h-3.5 text-[#004B87]" />
+          SQL Server
         </div>
 
         {/* Live Clock */}
         <div className="flex items-center gap-1.5 text-slate-500 font-mono tabular-nums text-xs">
           <Clock className="w-3.5 h-3.5 text-slate-400" />
           <span>{timeString}</span>
-        </div>
-
-        {/* Scanner Readiness Marker */}
-        <div className="flex items-center gap-1.5 text-slate-700 font-medium">
-          <Radio className="w-3.5 h-3.5 text-emerald-600" />
-          <span className="hidden sm:inline text-[11px]">Scanner Listener Active</span>
         </div>
 
         <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded bg-teal-700 px-3 py-1 font-semibold text-white">

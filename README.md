@@ -147,7 +147,8 @@ npm run build
 dotnet test IndustrialInventory.slnx
 ```
 
-Or use the VS Code launch configuration **Server + Vite**.
+Or use the VS Code launch configuration **Server + Vite** (F5). It opens one terminal tab for the API and
+one for Vite. Run `npm ci` once after cloning, or F5 can't start Vite.
 
 Schema changes: `dotnet ef migrations add <Name>` from `backend\IndustrialInventory.Api`, then `dotnet run`.
 To start over locally: `dotnet ef database drop --force`, `dotnet run`, `dotnet run -- set-admin-password`.
@@ -181,6 +182,9 @@ To start over locally: `dotnet ef database drop --force`, `dotnet run`, `dotnet 
   the idempotency gate is in memory.
 - SQL login for the app pool identity with `db_owner` on the database for the first deploy (it creates
   the `industrialinventory` schema), or have the DBA run the idempotent script.
+- Production uses its own new, empty database, never the one used for testing: the ledger and audit
+  tables are immutable, so test rows could never be removed. The first start creates the schema and
+  seeds only `admin`; enter the real store locations and personnel through the UI.
 - `ConnectionStrings__InventoryConnection` as a machine-level (system) variable before the first start, then
   `net stop was /y` and `net start w3svc`.
 - First admin password, from the site folder with the same environment:

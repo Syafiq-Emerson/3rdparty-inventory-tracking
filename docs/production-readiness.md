@@ -18,6 +18,7 @@ Copy this list into the release ticket and tick it there, not in this file.
 - [ ] App pool identity can write to `App_Data`
 - [ ] App pool identity has a SQL login on the inventory database (schema rights for the first migration)
 - [ ] `ConnectionStrings__InventoryConnection` set as a system variable before the first start, and WAS restarted
+- [ ] `ConnectionStrings__InventoryConnection` points at the new production database, not the test database
 - [ ] Admin password set (`dotnet IndustrialInventory.Api.dll set-admin-password` from the site folder)
 
 ## Publish

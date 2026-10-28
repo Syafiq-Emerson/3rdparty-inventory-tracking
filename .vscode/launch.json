@@ -10,7 +10,7 @@
       "program": "${workspaceFolder}/backend/IndustrialInventory.Api/bin/Debug/net10.0/IndustrialInventory.Api.dll",
       "cwd": "${workspaceFolder}/backend/IndustrialInventory.Api",
       "stopAtEntry": false,
-      "console": "internalConsole",
+      "console": "integratedTerminal",
       "env": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
@@ -29,7 +29,7 @@
       "program": "${workspaceFolder}/backend/IndustrialInventory.Api/bin/Debug/net10.0/IndustrialInventory.Api.dll",
       "cwd": "${workspaceFolder}/backend/IndustrialInventory.Api",
       "stopAtEntry": false,
-      "console": "internalConsole",
+      "console": "integratedTerminal",
       "env": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       }
@@ -42,11 +42,13 @@
       "cwd": "${workspaceFolder}",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "console": "internalConsole",
+      "console": "integratedTerminal",
       "skipFiles": ["<node_internals>/**"],
       "serverReadyAction": {
         "action": "openExternally",
-        "pattern": "Local:\\s+(https?://\\S+)"
+        // Vite colours the port in a terminal, so the URL is fixed rather than captured.
+        "pattern": "Local:",
+        "uriFormat": "http://localhost:3000"
       }
     },
     {
