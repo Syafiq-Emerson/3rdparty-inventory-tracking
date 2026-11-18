@@ -47,6 +47,9 @@ export interface InventoryItem {
   registeredByPersonnelCode: string;
   registeredByPersonnelName: string;
   isIssued: boolean;
+  currentStorageCycleId: string | null;
+  currentAgingDays: number | null;
+  totalStorageDays: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -59,11 +62,32 @@ export interface InventoryItemIdentification {
   locationCode: string;
   locationName: string;
   isIssued: boolean;
+  currentStorageCycleId?: string | null;
+  currentAgingDays?: number | null;
+}
+
+export interface StorageCycle {
+  id: string;
+  inventoryItemId: string;
+  locationId: string;
+  locationCodeSnapshot: string;
+  locationNameSnapshot: string;
+  storedAtUtc: string;
+  issuedAtUtc: string | null;
+  storedByPersonnelId: string;
+  storedByPersonnelCodeSnapshot: string;
+  storedByPersonnelNameSnapshot: string;
+  issuedByPersonnelId: string | null;
+  issuedByPersonnelCodeSnapshot: string | null;
+  issuedByPersonnelNameSnapshot: string | null;
+  durationDays: number;
+  isActive: boolean;
 }
 
 export interface InventoryMovement {
   id: string;
   inventoryItemId: string;
+  storageCycleId: string | null;
   fromLocationId: string | null;
   fromLocationName: string | null;
   toLocationId: string | null;
@@ -82,7 +106,28 @@ export interface IssueInventoryPayload {
 
 export interface IssueInventoryResponse {
   item: InventoryItemIdentification;
+  storageCycle: StorageCycle;
   movement: InventoryMovement;
+}
+
+export interface ReturnToStoragePayload {
+  serialNumber: string;
+  tagNumber: string;
+  storeLocationId: string;
+  performedByPersonnelId: string;
+}
+
+export interface ReturnToStorageResponse {
+  item: InventoryItemIdentification;
+  storageCycle: StorageCycle;
+  movement: InventoryMovement;
+}
+
+export interface InventoryHistory {
+  item: InventoryItemIdentification;
+  storageCycles: StorageCycle[];
+  movements: InventoryMovement[];
+  totalStorageDays: number;
 }
 
 export interface RegisterInventoryPayload {

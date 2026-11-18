@@ -13,12 +13,24 @@ internal static class InventoryRules
     public static (int Page, int PageSize) ClampPaging(int page, int pageSize) =>
         (Math.Max(1, page), Math.Clamp(pageSize, 1, MaxPageSize));
 
-    /// <summary>Blank becomes null; longer keys are cut to the column length.</summary>
-    public static string? NormalizeIdempotencyKey(string? raw)
+    /// <summary>Blank becomes null; keys longer than the ledger column are invalid.</summary>
+    public static bool TryNormalizeIdempotencyKey(string? raw, out string? normalized)
     {
         var key = raw?.Trim();
-        if (string.IsNullOrEmpty(key)) return null;
-        return key.Length <= IdempotencyKeyMaxLength ? key : key[..IdempotencyKeyMaxLength];
+        if (string.IsNullOrEmpty(key))
+        {
+            normalized = null;
+            return true;
+        }
+
+        if (key.Length > IdempotencyKeyMaxLength)
+        {
+            normalized = null;
+            return false;
+        }
+
+        normalized = key;
+        return true;
     }
 
     /// <summary>

@@ -180,7 +180,12 @@ namespace IndustrialInventory.Api.Migrations
                     b.HasIndex("EntityName", "EntityId")
                         .HasDatabaseName("IX_AuditEvent_Entity");
 
-                    b.ToTable("AuditEvent", "industrialinventory");
+                    b.ToTable("AuditEvent", "industrialinventory", t =>
+                        {
+                            t.HasTrigger("TR_AuditEvent_Immutable");
+                        });
+
+                    b.HasAnnotation("SqlServer:UseSqlOutputClause", false);
                 });
 
             modelBuilder.Entity("IndustrialInventory.Api.Models.InventoryItem", b =>
@@ -293,6 +298,11 @@ namespace IndustrialInventory.Api.Migrations
                         .HasColumnType("nvarchar(36)")
                         .HasColumnName("PerformedByPersonnelId");
 
+                    b.Property<string>("StorageCycleId")
+                        .HasMaxLength(36)
+                        .HasColumnType("nvarchar(36)")
+                        .HasColumnName("StorageCycleId");
+
                     b.Property<string>("ToLocationId")
                         .HasMaxLength(36)
                         .HasColumnType("nvarchar(36)")
@@ -320,10 +330,34 @@ namespace IndustrialInventory.Api.Migrations
                     b.HasIndex("ToLocationId")
                         .HasDatabaseName("IX_InventoryMovement_ToLocationId");
 
+                    b.HasIndex("StorageCycleId", "InventoryItemId")
+                        .HasDatabaseName("IX_InventoryMovement_StorageCycle_Item");
+
+                    b.HasIndex(new[] { "StorageCycleId" }, "UX_InventoryMovement_InitialRegistrationCycle")
+                        .IsUnique()
+                        .HasDatabaseName("UX_InventoryMovement_InitialRegistrationCycle")
+                        .HasFilter("[StorageCycleId] IS NOT NULL AND [EventType] = 'INITIAL_REGISTRATION'");
+
+                    b.HasIndex(new[] { "StorageCycleId" }, "UX_InventoryMovement_IssueCycle")
+                        .IsUnique()
+                        .HasDatabaseName("UX_InventoryMovement_IssueCycle")
+                        .HasFilter("[StorageCycleId] IS NOT NULL AND [EventType] = 'ISSUE_FOR_PACKING'");
+
+                    b.HasIndex(new[] { "StorageCycleId" }, "UX_InventoryMovement_ReturnCycle")
+                        .IsUnique()
+                        .HasDatabaseName("UX_InventoryMovement_ReturnCycle")
+                        .HasFilter("[StorageCycleId] IS NOT NULL AND [EventType] = 'RETURNED_TO_STORAGE'");
+
                     b.ToTable("InventoryMovement", "industrialinventory", t =>
                         {
-                            t.HasCheckConstraint("CK_InventoryMovement_EventType", "[EventType] IN ('INITIAL_REGISTRATION', 'ISSUE_FOR_PACKING')");
+                            t.HasTrigger("TR_InventoryMovement_Immutable");
+
+                            t.HasTrigger("TR_InventoryMovement_ValidateLifecycle");
+
+                            t.HasCheckConstraint("CK_InventoryMovement_EventType", "[EventType] IN ('INITIAL_REGISTRATION', 'ISSUE_FOR_PACKING', 'RETURNED_TO_STORAGE') AND [StorageCycleId] IS NOT NULL AND (([EventType] IN ('INITIAL_REGISTRATION', 'RETURNED_TO_STORAGE') AND [FromLocationId] IS NULL AND [ToLocationId] IS NOT NULL) OR ([EventType] = 'ISSUE_FOR_PACKING' AND [FromLocationId] IS NOT NULL AND [ToLocationId] IS NULL))");
                         });
+
+                    b.HasAnnotation("SqlServer:UseSqlOutputClause", false);
                 });
 
             modelBuilder.Entity("IndustrialInventory.Api.Models.Personnel", b =>
@@ -369,6 +403,114 @@ namespace IndustrialInventory.Api.Migrations
                         .HasDatabaseName("UX_Personnel_PersonnelCode");
 
                     b.ToTable("Personnel", "industrialinventory");
+                });
+
+            modelBuilder.Entity("IndustrialInventory.Api.Models.StorageCycle", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(36)
+                        .HasColumnType("nvarchar(36)")
+                        .HasColumnName("Id");
+
+                    b.Property<string>("InventoryItemId")
+                        .IsRequired()
+                        .HasMaxLength(36)
+                        .HasColumnType("nvarchar(36)")
+                        .HasColumnName("InventoryItemId");
+
+                    b.Property<DateTime?>("IssuedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("IssuedAtUtc");
+
+                    b.Property<string>("IssuedByPersonnelCodeSnapshot")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasColumnName("IssuedByPersonnelCodeSnapshot");
+
+                    b.Property<string>("IssuedByPersonnelId")
+                        .HasMaxLength(36)
+                        .HasColumnType("nvarchar(36)")
+                        .HasColumnName("IssuedByPersonnelId");
+
+                    b.Property<string>("IssuedByPersonnelNameSnapshot")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("IssuedByPersonnelNameSnapshot");
+
+                    b.Property<string>("LocationCodeSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasColumnName("LocationCodeSnapshot");
+
+                    b.Property<string>("LocationId")
+                        .IsRequired()
+                        .HasMaxLength(36)
+                        .HasColumnType("nvarchar(36)")
+                        .HasColumnName("LocationId");
+
+                    b.Property<string>("LocationNameSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("LocationNameSnapshot");
+
+                    b.Property<DateTime>("StoredAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("StoredAtUtc");
+
+                    b.Property<string>("StoredByPersonnelCodeSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasColumnName("StoredByPersonnelCodeSnapshot");
+
+                    b.Property<string>("StoredByPersonnelId")
+                        .IsRequired()
+                        .HasMaxLength(36)
+                        .HasColumnType("nvarchar(36)")
+                        .HasColumnName("StoredByPersonnelId");
+
+                    b.Property<string>("StoredByPersonnelNameSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("StoredByPersonnelNameSnapshot");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("Id", "InventoryItemId")
+                        .HasName("UQ_StorageCycle_Id_InventoryItemId");
+
+                    b.HasIndex("InventoryItemId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_StorageCycle_OneActivePerItem")
+                        .HasFilter("[IssuedAtUtc] IS NULL");
+
+                    b.HasIndex("IssuedByPersonnelId")
+                        .HasDatabaseName("IX_StorageCycle_IssuedByPersonnelId");
+
+                    b.HasIndex("LocationId")
+                        .HasDatabaseName("IX_StorageCycle_LocationId");
+
+                    b.HasIndex("StoredByPersonnelId")
+                        .HasDatabaseName("IX_StorageCycle_StoredByPersonnelId");
+
+                    b.HasIndex("InventoryItemId", "StoredAtUtc")
+                        .HasDatabaseName("IX_StorageCycle_Item_StoredAtUtc");
+
+                    b.ToTable("StorageCycle", "industrialinventory", t =>
+                        {
+                            t.HasTrigger("TR_StorageCycle_Immutable");
+
+                            t.HasCheckConstraint("CK_StorageCycle_Chronology", "[IssuedAtUtc] IS NULL OR [IssuedAtUtc] >= [StoredAtUtc]");
+
+                            t.HasCheckConstraint("CK_StorageCycle_IssuePair", "([IssuedAtUtc] IS NULL AND [IssuedByPersonnelId] IS NULL AND [IssuedByPersonnelCodeSnapshot] IS NULL AND [IssuedByPersonnelNameSnapshot] IS NULL) OR ([IssuedAtUtc] IS NOT NULL AND [IssuedByPersonnelId] IS NOT NULL AND [IssuedByPersonnelCodeSnapshot] IS NOT NULL AND [IssuedByPersonnelNameSnapshot] IS NOT NULL)");
+                        });
+
+                    b.HasAnnotation("SqlServer:UseSqlOutputClause", false);
                 });
 
             modelBuilder.Entity("IndustrialInventory.Api.Models.StoreLocation", b =>
@@ -465,18 +607,67 @@ namespace IndustrialInventory.Api.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("FK_InventoryMovement_ToLocation");
 
+                    b.HasOne("IndustrialInventory.Api.Models.StorageCycle", "StorageCycle")
+                        .WithMany("Movements")
+                        .HasForeignKey("StorageCycleId", "InventoryItemId")
+                        .HasPrincipalKey("Id", "InventoryItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_InventoryMovement_StorageCycle_Item");
+
                     b.Navigation("FromLocation");
 
                     b.Navigation("InventoryItem");
 
                     b.Navigation("PerformedByPersonnel");
 
+                    b.Navigation("StorageCycle");
+
                     b.Navigation("ToLocation");
+                });
+
+            modelBuilder.Entity("IndustrialInventory.Api.Models.StorageCycle", b =>
+                {
+                    b.HasOne("IndustrialInventory.Api.Models.InventoryItem", "InventoryItem")
+                        .WithMany("StorageCycles")
+                        .HasForeignKey("InventoryItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StorageCycle_InventoryItem");
+
+                    b.HasOne("IndustrialInventory.Api.Models.Personnel", "IssuedByPersonnel")
+                        .WithMany()
+                        .HasForeignKey("IssuedByPersonnelId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_StorageCycle_IssuedByPersonnel");
+
+                    b.HasOne("IndustrialInventory.Api.Models.StoreLocation", "Location")
+                        .WithMany()
+                        .HasForeignKey("LocationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StorageCycle_StoreLocation");
+
+                    b.HasOne("IndustrialInventory.Api.Models.Personnel", "StoredByPersonnel")
+                        .WithMany()
+                        .HasForeignKey("StoredByPersonnelId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StorageCycle_StoredByPersonnel");
+
+                    b.Navigation("InventoryItem");
+
+                    b.Navigation("IssuedByPersonnel");
+
+                    b.Navigation("Location");
+
+                    b.Navigation("StoredByPersonnel");
                 });
 
             modelBuilder.Entity("IndustrialInventory.Api.Models.InventoryItem", b =>
                 {
                     b.Navigation("Movements");
+
+                    b.Navigation("StorageCycles");
                 });
 
             modelBuilder.Entity("IndustrialInventory.Api.Models.Personnel", b =>
@@ -484,6 +675,11 @@ namespace IndustrialInventory.Api.Migrations
                     b.Navigation("PerformedMovements");
 
                     b.Navigation("RegisteredInventoryItems");
+                });
+
+            modelBuilder.Entity("IndustrialInventory.Api.Models.StorageCycle", b =>
+                {
+                    b.Navigation("Movements");
                 });
 
             modelBuilder.Entity("IndustrialInventory.Api.Models.StoreLocation", b =>

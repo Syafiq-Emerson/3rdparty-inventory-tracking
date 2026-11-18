@@ -47,12 +47,12 @@ public class QueryTranslationTests
     }
 
     [Fact]
-    public void Identification_projection_translates()
+    public void Item_projection_translates_for_identification()
     {
         using var db = OfflineDb.Create();
         var sql = db.InventoryItems
             .Where(i => i.SerialNumber == "s" && i.TagNumber == "t")
-            .Select(InventoryController.IdentificationProjection)
+            .Select(InventoryController.ItemProjection)
             .ToQueryString();
 
         Assert.Contains($"{Schema}.[StoreLocation]", sql);

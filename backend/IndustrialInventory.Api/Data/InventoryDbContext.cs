@@ -14,6 +14,7 @@ public class InventoryDbContext(DbContextOptions<InventoryDbContext> options) : 
     public DbSet<StoreLocation> StoreLocations => Set<StoreLocation>();
     public DbSet<Personnel> Personnel => Set<Personnel>();
     public DbSet<InventoryItem> InventoryItems => Set<InventoryItem>();
+    public DbSet<StorageCycle> StorageCycles => Set<StorageCycle>();
     public DbSet<InventoryMovement> InventoryMovements => Set<InventoryMovement>();
     public DbSet<AppUser> AppUsers => Set<AppUser>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
@@ -81,9 +82,23 @@ public class InventoryDbContext(DbContextOptions<InventoryDbContext> options) : 
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.InventoryItemId).HasDatabaseName("IX_InventoryMovement_InventoryItemId");
+            entity.HasIndex(e => new { e.StorageCycleId, e.InventoryItemId })
+                .HasDatabaseName("IX_InventoryMovement_StorageCycle_Item");
             entity.HasIndex(e => e.ToLocationId).HasDatabaseName("IX_InventoryMovement_ToLocationId");
             entity.HasIndex(e => e.PerformedByPersonnelId).HasDatabaseName("IX_InventoryMovement_PerformedByPersonnelId");
             entity.HasIndex(e => e.MovedAtUtc).IsDescending().HasDatabaseName("IX_InventoryMovement_MovedAtUtc");
+            entity.HasIndex(e => e.StorageCycleId, "UX_InventoryMovement_InitialRegistrationCycle")
+                .IsUnique()
+                .HasFilter($"[StorageCycleId] IS NOT NULL AND [EventType] = '{MovementEventType.InitialRegistration}'")
+                .HasDatabaseName("UX_InventoryMovement_InitialRegistrationCycle");
+            entity.HasIndex(e => e.StorageCycleId, "UX_InventoryMovement_ReturnCycle")
+                .IsUnique()
+                .HasFilter($"[StorageCycleId] IS NOT NULL AND [EventType] = '{MovementEventType.ReturnedToStorage}'")
+                .HasDatabaseName("UX_InventoryMovement_ReturnCycle");
+            entity.HasIndex(e => e.StorageCycleId, "UX_InventoryMovement_IssueCycle")
+                .IsUnique()
+                .HasFilter($"[StorageCycleId] IS NOT NULL AND [EventType] = '{MovementEventType.IssueForPacking}'")
+                .HasDatabaseName("UX_InventoryMovement_IssueCycle");
             entity.HasIndex(e => e.IdempotencyKey)
                 .IsUnique()
                 .HasFilter("[IdempotencyKey] IS NOT NULL")
@@ -94,9 +109,14 @@ public class InventoryDbContext(DbContextOptions<InventoryDbContext> options) : 
             entity.Property(e => e.IdempotencyKey).HasMaxLength(64);
             entity.Property(e => e.MovedAtUtc).HasPrecision(3);
 
-            entity.ToTable(t => t.HasCheckConstraint(
-                "CK_InventoryMovement_EventType",
-                $"[EventType] IN ('{MovementEventType.InitialRegistration}', '{MovementEventType.IssueForPacking}')"));
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint(
+                    "CK_InventoryMovement_EventType",
+                    $"[EventType] IN ('{MovementEventType.InitialRegistration}', '{MovementEventType.IssueForPacking}', '{MovementEventType.ReturnedToStorage}') AND [StorageCycleId] IS NOT NULL AND (([EventType] IN ('{MovementEventType.InitialRegistration}', '{MovementEventType.ReturnedToStorage}') AND [FromLocationId] IS NULL AND [ToLocationId] IS NOT NULL) OR ([EventType] = '{MovementEventType.IssueForPacking}' AND [FromLocationId] IS NOT NULL AND [ToLocationId] IS NULL))");
+                t.HasTrigger("TR_InventoryMovement_Immutable");
+                t.HasTrigger("TR_InventoryMovement_ValidateLifecycle");
+            });
 
             // Restrict, not Cascade: ledger history outlives the item, and SQL Server forbids an
             // INSTEAD OF trigger on a table reached by a cascading delete.
@@ -124,6 +144,77 @@ public class InventoryDbContext(DbContextOptions<InventoryDbContext> options) : 
                 .HasForeignKey(d => d.PerformedByPersonnelId)
                 .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("FK_InventoryMovement_Personnel");
+
+            entity.HasOne(d => d.StorageCycle)
+                .WithMany(c => c.Movements)
+                .HasForeignKey(d => new { d.StorageCycleId, d.InventoryItemId })
+                .HasPrincipalKey(c => new { c.Id, c.InventoryItemId })
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_InventoryMovement_StorageCycle_Item");
+        });
+
+        modelBuilder.Entity<StorageCycle>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasAlternateKey(e => new { e.Id, e.InventoryItemId })
+                .HasName("UQ_StorageCycle_Id_InventoryItemId");
+
+            entity.HasIndex(e => e.InventoryItemId)
+                .IsUnique()
+                .HasFilter("[IssuedAtUtc] IS NULL")
+                .HasDatabaseName("UX_StorageCycle_OneActivePerItem");
+            entity.HasIndex(e => new { e.InventoryItemId, e.StoredAtUtc })
+                .HasDatabaseName("IX_StorageCycle_Item_StoredAtUtc");
+            entity.HasIndex(e => e.LocationId).HasDatabaseName("IX_StorageCycle_LocationId");
+            entity.HasIndex(e => e.StoredByPersonnelId).HasDatabaseName("IX_StorageCycle_StoredByPersonnelId");
+            entity.HasIndex(e => e.IssuedByPersonnelId).HasDatabaseName("IX_StorageCycle_IssuedByPersonnelId");
+
+            entity.Property(e => e.Id).HasMaxLength(36);
+            entity.Property(e => e.InventoryItemId).IsRequired().HasMaxLength(36);
+            entity.Property(e => e.LocationId).IsRequired().HasMaxLength(36);
+            entity.Property(e => e.StoredAtUtc).HasPrecision(3);
+            entity.Property(e => e.IssuedAtUtc).HasPrecision(3);
+            entity.Property(e => e.StoredByPersonnelId).IsRequired().HasMaxLength(36);
+            entity.Property(e => e.IssuedByPersonnelId).HasMaxLength(36);
+            entity.Property(e => e.LocationCodeSnapshot).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.LocationNameSnapshot).IsRequired().HasMaxLength(150);
+            entity.Property(e => e.StoredByPersonnelCodeSnapshot).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.StoredByPersonnelNameSnapshot).IsRequired().HasMaxLength(150);
+            entity.Property(e => e.IssuedByPersonnelCodeSnapshot).HasMaxLength(50);
+            entity.Property(e => e.IssuedByPersonnelNameSnapshot).HasMaxLength(150);
+
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint(
+                    "CK_StorageCycle_IssuePair",
+                    "([IssuedAtUtc] IS NULL AND [IssuedByPersonnelId] IS NULL AND [IssuedByPersonnelCodeSnapshot] IS NULL AND [IssuedByPersonnelNameSnapshot] IS NULL) OR ([IssuedAtUtc] IS NOT NULL AND [IssuedByPersonnelId] IS NOT NULL AND [IssuedByPersonnelCodeSnapshot] IS NOT NULL AND [IssuedByPersonnelNameSnapshot] IS NOT NULL)");
+                t.HasCheckConstraint(
+                    "CK_StorageCycle_Chronology",
+                    "[IssuedAtUtc] IS NULL OR [IssuedAtUtc] >= [StoredAtUtc]");
+                t.HasTrigger("TR_StorageCycle_Immutable");
+            });
+
+            entity.HasOne(c => c.InventoryItem)
+                .WithMany(i => i.StorageCycles)
+                .HasForeignKey(c => c.InventoryItemId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_StorageCycle_InventoryItem");
+            entity.HasOne(c => c.Location)
+                .WithMany()
+                .HasForeignKey(c => c.LocationId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_StorageCycle_StoreLocation");
+            entity.HasOne(c => c.StoredByPersonnel)
+                .WithMany()
+                .HasForeignKey(c => c.StoredByPersonnelId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_StorageCycle_StoredByPersonnel");
+            entity.HasOne(c => c.IssuedByPersonnel)
+                .WithMany()
+                .HasForeignKey(c => c.IssuedByPersonnelId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_StorageCycle_IssuedByPersonnel");
         });
 
         modelBuilder.Entity<AppUser>(entity =>
@@ -145,6 +236,7 @@ public class InventoryDbContext(DbContextOptions<InventoryDbContext> options) : 
         modelBuilder.Entity<AuditEvent>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.ToTable(t => t.HasTrigger("TR_AuditEvent_Immutable"));
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
             entity.HasIndex(e => e.OccurredAtUtc).IsDescending().HasDatabaseName("IX_AuditEvent_OccurredAtUtc");
             entity.HasIndex(e => new { e.EntityName, e.EntityId }).HasDatabaseName("IX_AuditEvent_Entity");

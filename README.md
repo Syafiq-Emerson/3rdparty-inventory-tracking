@@ -32,7 +32,7 @@ Sign-in is a cookie session. There is one seeded account, `admin`; no screen cre
 
 ## API
 
-Every endpoint needs a signed-in session except those marked **anonymous**. Errors are `{ "error": "..." }`.
+Every endpoint needs a signed-in session except those marked **anonymous**. Unsafe browser requests require a server-issued anti-forgery token in `X-CSRF-TOKEN` and a matching configured `Origin`. Inventory registration and issue writes require the `Admin` or `Operator` role; authenticated reads retain their existing access. Errors are `{ "error": "..." }`.
 
 | Method | Endpoint | Purpose |
 |---|---|---|
@@ -40,18 +40,20 @@ Every endpoint needs a signed-in session except those marked **anonymous**. Erro
 | GET | `/api/health/ready` | `SELECT 1`, 5 s timeout, 503 when the database is unreachable — **anonymous** |
 | GET | `/api/system/version` | `{ version, buildDate }` — **anonymous** |
 | GET | `/api/system/deploy-notice` | Update countdown, or 204 — **anonymous** |
+| GET | `/api/auth/csrf-token` | Anti-forgery request token — **anonymous**, `no-store` |
 | POST | `/api/auth/login` | Sign in; 5 attempts per minute per IP — **anonymous** |
 | POST | `/api/auth/logout` | Sign out |
 | GET | `/api/auth/me` | Current user, or 401 — **anonymous** |
 | POST | `/api/auth/change-password` | Change own password (min. 12 characters) |
 | GET | `/api/dashboard/summary` | Dashboard figures |
-| GET | `/api/inventory` | Page of items (`?locationId=&page=&pageSize=`) → `{ items, hasMore }` |
-| GET | `/api/inventory/{id}` | One item |
-| GET | `/api/inventory/search` | Search serial/tag (`?q=&locationId=`), max 50 |
-| GET | `/api/inventory/identify` | Item by both barcodes (`?serialNumber=&tagNumber=`) |
-| POST | `/api/inventory` | Register item + initial movement; honours `Idempotency-Key` |
-| POST | `/api/inventory/issue` | Issue for packing; honours `Idempotency-Key` |
-| GET | `/api/inventory/{id}/history` | Movement ledger for an item |
+| GET | `/api/inventory` | Page of items (`?locationId=&page=&pageSize=`) → `{ items, hasMore }`; includes current and total storage days |
+| GET | `/api/inventory/{id}` | One item, including current and total storage days |
+| GET | `/api/inventory/search` | Search serial/tag (`?q=&locationId=`), max 50; includes current and total storage days |
+| GET | `/api/inventory/identify` | Item by both barcodes (`?serialNumber=&tagNumber=`), including current-cycle age |
+| POST | `/api/inventory` | Register item + initial storage cycle and movement; honours `Idempotency-Key` |
+| POST | `/api/inventory/issue` | Issue for packing and close the active storage cycle; honours `Idempotency-Key` |
+| POST | `/api/inventory/return-to-storage` | Return an issued item to an active location and start a storage cycle; requires `Idempotency-Key` |
+| GET | `/api/inventory/{id}/history` | Item status, storage-cycle summaries, total whole storage days, and movement ledger |
 | GET/POST | `/api/locations` | List (`?activeOnly=true`) / create |
 | PUT | `/api/locations/{id}` | Update code and name |
 | PATCH | `/api/locations/{id}/status` | Activate / deactivate |
@@ -103,6 +105,11 @@ uses `dotnet user-secrets`.
 | `ConnectionStrings__InventoryConnection` | SQL Server connection string. **Required**; the app will not start without it. | *(empty)* |
 | `ASPNETCORE_ENVIRONMENT` | `Development` enables Swagger and user-secrets. | `Production` |
 | `VITE_API_TARGET` | Dev only: where Vite proxies `/api`. | `http://localhost:5000` |
+| `Security__AllowedOrigins__0` | Exact browser origin allowed for unsafe API requests. Required in production; add `__1`, etc. for additional origins. | Development config allows `http://localhost:3000` and `http://localhost:5000` |
+
+Production must set each real browser origin as an exact scheme/host/port value through machine-level environment variables. No production origin is checked into the repository. Unsafe API requests without a single matching `Origin` are rejected.
+
+Origin validation does not provide transport encryption. The existing cookies use `SameAsRequest`, and this application does not configure forwarded-header processing. A TLS-terminating reverse proxy must be configured to pass the external HTTPS scheme through trusted forwarded headers before authentication; trust only the known proxy. This change does not add HTTPS redirection, HSTS, or proxy configuration.
 
 ## Database objects
 
@@ -114,12 +121,17 @@ Everything lives in the `industrialinventory` schema; migration history is
 | `StoreLocation` | Table | Locations; `UX_StoreLocation_LocationCode`; soft-deleted via `IsActive` |
 | `Personnel` | Table | People who scan; `UX_Personnel_PersonnelCode`; soft-deleted via `IsActive` |
 | `InventoryItem` | Table | One row per instrument; `UX_InventoryItem_SerialNumber`, `UX_InventoryItem_TagNumber` |
-| `InventoryMovement` | Table | Append-only ledger; `UX_InventoryMovement_IdempotencyKey` (filtered) |
+| `StorageCycle` | Table | Per-item storage periods; one active cycle per item via `UX_StorageCycle_OneActivePerItem` |
+| `InventoryMovement` | Table | Append-only ledger linked to its cycle; `UX_InventoryMovement_IdempotencyKey` (filtered) |
 | `AppUser` | Table | Sign-in accounts; seeded `admin` with no password |
 | `AuditEvent` | Table | Append-only audit trail (create/update/deactivate/restore/login/post) |
-| `CK_InventoryMovement_EventType` | Check | `InitialRegistration`, `IssueForPacking` |
+| `CK_InventoryMovement_EventType` | Check | `INITIAL_REGISTRATION`, `ISSUE_FOR_PACKING`, `RETURNED_TO_STORAGE`; enforces movement direction and cycle link |
+| `CK_StorageCycle_Chronology` | Check | Issue time cannot precede storage time |
+| `CK_StorageCycle_IssuePair` | Check | Issue timestamp, responsible person, and snapshots are set together |
 | `CK_AppUser_Role` | Check | `Admin`, `Operator` |
 | `TR_InventoryMovement_Immutable` | Trigger | Blocks UPDATE/DELETE on the ledger (THROW 51002) |
+| `TR_StorageCycle_Immutable` | Trigger | Allows only one-way closure of an active storage cycle |
+| `TR_InventoryMovement_ValidateLifecycle` | Trigger | Validates movement/cycle boundaries and opening movement uniqueness |
 | `TR_AuditEvent_Immutable` | Trigger | Blocks UPDATE/DELETE on audit rows (THROW 51000) |
 
 Trigger text lives in `Sql/SqlObjects.cs`. To change one, edit the constant and add a migration that

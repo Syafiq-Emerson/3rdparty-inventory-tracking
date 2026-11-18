@@ -8,8 +8,9 @@ public static class MovementEventType
 {
     public const string InitialRegistration = "INITIAL_REGISTRATION";
     public const string IssueForPacking = "ISSUE_FOR_PACKING";
+    public const string ReturnedToStorage = "RETURNED_TO_STORAGE";
 
-    public static readonly string[] All = [InitialRegistration, IssueForPacking];
+    public static readonly string[] All = [InitialRegistration, IssueForPacking, ReturnedToStorage];
 }
 
 /// <summary>Allowed values for <see cref="AppUser.Role"/>; enforced by CK_AppUser_Role.</summary>
@@ -128,6 +129,84 @@ public class InventoryItem
     public DateTime UpdatedAtUtc { get; set; }
 
     public virtual ICollection<InventoryMovement> Movements { get; set; } = new List<InventoryMovement>();
+    public virtual ICollection<StorageCycle> StorageCycles { get; set; } = new List<StorageCycle>();
+}
+
+/// <summary>One uninterrupted period in which an inventory item is in storage.</summary>
+[Table("StorageCycle")]
+public class StorageCycle
+{
+    [Key]
+    [Column("Id")]
+    [MaxLength(36)]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+
+    [Required]
+    [Column("InventoryItemId")]
+    [MaxLength(36)]
+    public string InventoryItemId { get; set; } = string.Empty;
+
+    [ForeignKey(nameof(InventoryItemId))]
+    public virtual InventoryItem InventoryItem { get; set; } = null!;
+
+    [Required]
+    [Column("LocationId")]
+    [MaxLength(36)]
+    public string LocationId { get; set; } = string.Empty;
+
+    [ForeignKey(nameof(LocationId))]
+    public virtual StoreLocation Location { get; set; } = null!;
+
+    [Column("StoredAtUtc")]
+    public DateTime StoredAtUtc { get; set; }
+
+    [Column("IssuedAtUtc")]
+    public DateTime? IssuedAtUtc { get; set; }
+
+    [Required]
+    [Column("StoredByPersonnelId")]
+    [MaxLength(36)]
+    public string StoredByPersonnelId { get; set; } = string.Empty;
+
+    [ForeignKey(nameof(StoredByPersonnelId))]
+    public virtual Personnel StoredByPersonnel { get; set; } = null!;
+
+    [Column("IssuedByPersonnelId")]
+    [MaxLength(36)]
+    public string? IssuedByPersonnelId { get; set; }
+
+    [ForeignKey(nameof(IssuedByPersonnelId))]
+    public virtual Personnel? IssuedByPersonnel { get; set; }
+
+    [Required]
+    [Column("LocationCodeSnapshot")]
+    [MaxLength(50)]
+    public string LocationCodeSnapshot { get; set; } = string.Empty;
+
+    [Required]
+    [Column("LocationNameSnapshot")]
+    [MaxLength(150)]
+    public string LocationNameSnapshot { get; set; } = string.Empty;
+
+    [Required]
+    [Column("StoredByPersonnelCodeSnapshot")]
+    [MaxLength(50)]
+    public string StoredByPersonnelCodeSnapshot { get; set; } = string.Empty;
+
+    [Required]
+    [Column("StoredByPersonnelNameSnapshot")]
+    [MaxLength(150)]
+    public string StoredByPersonnelNameSnapshot { get; set; } = string.Empty;
+
+    [Column("IssuedByPersonnelCodeSnapshot")]
+    [MaxLength(50)]
+    public string? IssuedByPersonnelCodeSnapshot { get; set; }
+
+    [Column("IssuedByPersonnelNameSnapshot")]
+    [MaxLength(150)]
+    public string? IssuedByPersonnelNameSnapshot { get; set; }
+
+    public virtual ICollection<InventoryMovement> Movements { get; set; } = new List<InventoryMovement>();
 }
 
 /// <summary>Append-only ledger row. Corrections are new reversing rows, never edits.</summary>
@@ -146,6 +225,13 @@ public class InventoryMovement
 
     [ForeignKey(nameof(InventoryItemId))]
     public virtual InventoryItem InventoryItem { get; set; } = null!;
+
+    [Column("StorageCycleId")]
+    [MaxLength(36)]
+    public string? StorageCycleId { get; set; }
+
+    [ForeignKey(nameof(StorageCycleId))]
+    public virtual StorageCycle? StorageCycle { get; set; }
 
     [Column("FromLocationId")]
     [MaxLength(36)]

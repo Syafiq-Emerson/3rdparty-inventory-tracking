@@ -32,6 +32,9 @@ public record InventoryItemResponse
     public string RegisteredByPersonnelCode { get; init; } = string.Empty;
     public string RegisteredByPersonnelName { get; init; } = string.Empty;
     public bool IsIssued { get; init; }
+    public string? CurrentStorageCycleId { get; init; }
+    public int? CurrentAgingDays { get; init; }
+    public int TotalStorageDays { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 }
@@ -45,6 +48,8 @@ public record InventoryItemIdentificationResponse
     public string LocationCode { get; init; } = string.Empty;
     public string LocationName { get; init; } = string.Empty;
     public bool IsIssued { get; init; }
+    public string? CurrentStorageCycleId { get; init; }
+    public int? CurrentAgingDays { get; init; }
 }
 
 public record IssueInventoryRequest
@@ -65,7 +70,74 @@ public record IssueInventoryRequest
 public record IssueInventoryResponse
 {
     public InventoryItemIdentificationResponse Item { get; init; } = null!;
+    public StorageCycleResponse StorageCycle { get; init; } = null!;
     public InventoryMovementResponse Movement { get; init; } = null!;
+}
+
+public record ReturnToStorageRequest
+{
+    [Required]
+    [StringLength(100, MinimumLength = 1)]
+    public string SerialNumber { get; init; } = string.Empty;
+
+    [Required]
+    [StringLength(100, MinimumLength = 1)]
+    public string TagNumber { get; init; } = string.Empty;
+
+    [Required]
+    [StringLength(36, MinimumLength = 1)]
+    public string StoreLocationId { get; init; } = string.Empty;
+
+    [Required]
+    [StringLength(36, MinimumLength = 1)]
+    public string PerformedByPersonnelId { get; init; } = string.Empty;
+}
+
+public record ReturnToStorageResponse
+{
+    public InventoryItemIdentificationResponse Item { get; init; } = null!;
+    public StorageCycleResponse StorageCycle { get; init; } = null!;
+    public InventoryMovementResponse Movement { get; init; } = null!;
+}
+
+public record StorageCycleResponse
+{
+    public string Id { get; init; } = string.Empty;
+    public string InventoryItemId { get; init; } = string.Empty;
+    public string LocationId { get; init; } = string.Empty;
+    public string LocationCodeSnapshot { get; init; } = string.Empty;
+    public string LocationNameSnapshot { get; init; } = string.Empty;
+    public DateTime StoredAtUtc { get; init; }
+    public DateTime? IssuedAtUtc { get; init; }
+    public string StoredByPersonnelId { get; init; } = string.Empty;
+    public string StoredByPersonnelCodeSnapshot { get; init; } = string.Empty;
+    public string StoredByPersonnelNameSnapshot { get; init; } = string.Empty;
+    public string? IssuedByPersonnelId { get; init; }
+    public string? IssuedByPersonnelCodeSnapshot { get; init; }
+    public string? IssuedByPersonnelNameSnapshot { get; init; }
+    public int DurationDays { get; init; }
+    public bool IsActive { get; init; }
+}
+
+public record InventoryHistoryItemResponse
+{
+    public string Id { get; init; } = string.Empty;
+    public string SerialNumber { get; init; } = string.Empty;
+    public string TagNumber { get; init; } = string.Empty;
+    public bool IsIssued { get; init; }
+    public string LocationId { get; init; } = string.Empty;
+    public string LocationCode { get; init; } = string.Empty;
+    public string LocationName { get; init; } = string.Empty;
+    public string? CurrentStorageCycleId { get; init; }
+    public int? CurrentAgingDays { get; init; }
+}
+
+public record InventoryHistoryResponse
+{
+    public InventoryHistoryItemResponse Item { get; init; } = null!;
+    public IReadOnlyList<StorageCycleResponse> StorageCycles { get; init; } = [];
+    public IReadOnlyList<InventoryMovementResponse> Movements { get; init; } = [];
+    public int TotalStorageDays { get; init; }
 }
 
 public record DuplicateConflictResponse
@@ -81,6 +153,7 @@ public record InventoryMovementResponse
 {
     public string Id { get; init; } = string.Empty;
     public string InventoryItemId { get; init; } = string.Empty;
+    public string? StorageCycleId { get; init; }
     public string? FromLocationId { get; init; }
     public string? FromLocationName { get; init; }
     public string? ToLocationId { get; init; }

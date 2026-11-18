@@ -65,4 +65,36 @@ public class ModelTests
 
         Assert.All(keys, k => Assert.NotEqual(DeleteBehavior.Cascade, k.DeleteBehavior));
     }
+
+    [Fact]
+    public void Storage_cycles_allow_multiple_history_rows_but_only_one_active_cycle()
+    {
+        using var db = OfflineDb.Create();
+        var model = db.GetService<IDesignTimeModel>().Model;
+        var cycle = model.FindEntityType(typeof(StorageCycle))!;
+        var activeIndex = Assert.Single(cycle.GetIndexes(), index =>
+            index.GetDatabaseName() == "UX_StorageCycle_OneActivePerItem");
+
+        Assert.True(activeIndex.IsUnique);
+        Assert.Equal("[IssuedAtUtc] IS NULL", activeIndex.GetFilter());
+        Assert.Contains(cycle.GetCheckConstraints(), constraint => constraint.Name == "CK_StorageCycle_Chronology");
+        Assert.Contains(cycle.GetCheckConstraints(), constraint => constraint.Name == "CK_StorageCycle_IssuePair");
+    }
+
+    [Fact]
+    public void Lifecycle_movements_require_a_same_item_cycle_reference()
+    {
+        using var db = OfflineDb.Create();
+        var movement = db.Model.FindEntityType(typeof(InventoryMovement))!;
+        var cycleForeignKey = Assert.Single(movement.GetForeignKeys(), foreignKey =>
+            foreignKey.GetConstraintName() == "FK_InventoryMovement_StorageCycle_Item");
+
+        Assert.Equal(
+            [nameof(InventoryMovement.StorageCycleId), nameof(InventoryMovement.InventoryItemId)],
+            cycleForeignKey.Properties.Select(property => property.Name));
+        Assert.Equal(
+            [nameof(StorageCycle.Id), nameof(StorageCycle.InventoryItemId)],
+            cycleForeignKey.PrincipalKey.Properties.Select(property => property.Name));
+        Assert.Contains(MovementEventType.ReturnedToStorage, MovementEventType.All);
+    }
 }

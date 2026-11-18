@@ -217,6 +217,7 @@ export const InventoryListView: React.FC<Props> = ({ onInspectItem, onNavigateTo
                     <th className="py-3 px-4">Availability</th>
                     <th className="py-3 px-4">Responsible Personnel</th>
                     <th className="py-3 px-4">Registration Date</th>
+                    <th className="py-3 px-4 text-right min-w-[6.5rem] whitespace-nowrap">Aging (Days)</th>
                     <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -277,6 +278,11 @@ export const InventoryListView: React.FC<Props> = ({ onInspectItem, onNavigateTo
                         <span className="text-[11px] text-slate-400">
                           {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
+                      </td>
+
+                      {/* Accumulated storage duration from the API */}
+                      <td className="py-3 px-4 text-right font-mono tabular-nums text-slate-700 whitespace-nowrap">
+                        {item.totalStorageDays ?? '—'}
                       </td>
 
                       {/* Action */}

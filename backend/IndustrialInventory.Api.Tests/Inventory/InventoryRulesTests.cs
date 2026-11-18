@@ -13,16 +13,23 @@ public class InventoryRulesTests
         => Assert.Equal((expectedPage, expectedSize), InventoryRules.ClampPaging(page, size));
 
     [Theory]
-    [InlineData(null, null)]
-    [InlineData("", null)]
-    [InlineData("   ", null)]
-    [InlineData(" abc ", "abc")]
-    public void Idempotency_key_is_trimmed_and_blank_means_none(string? raw, string? expected)
-        => Assert.Equal(expected, InventoryRules.NormalizeIdempotencyKey(raw));
+    [InlineData(null, true, null)]
+    [InlineData("", true, null)]
+    [InlineData("   ", true, null)]
+    [InlineData(" abc ", true, "abc")]
+    [InlineData(" 64 ", true, "64")]
+    public void Idempotency_key_is_trimmed_and_blank_means_none(string? raw, bool expectedValid, string? expected)
+    {
+        Assert.Equal(expectedValid, InventoryRules.TryNormalizeIdempotencyKey(raw, out var actual));
+        Assert.Equal(expected, actual);
+    }
 
     [Fact]
-    public void Idempotency_key_is_cut_to_the_column_length()
-        => Assert.Equal(new string('k', 64), InventoryRules.NormalizeIdempotencyKey(new string('k', 80)));
+    public void Oversize_idempotency_key_is_rejected_without_truncation()
+    {
+        Assert.False(InventoryRules.TryNormalizeIdempotencyKey(new string('k', 65), out var normalized));
+        Assert.Null(normalized);
+    }
 
     [Theory]
     [InlineData("PV-165", "%PV-165%")]

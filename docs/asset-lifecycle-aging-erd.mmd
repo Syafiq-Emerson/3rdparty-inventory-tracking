@@ -1,0 +1,94 @@
+erDiagram
+    InventoryItem {
+        nvarchar36 Id PK
+        nvarchar100 SerialNumber UK
+        nvarchar100 TagNumber UK
+        nvarchar36 LocationId FK
+        nvarchar36 RegisteredByPersonnelId FK
+        bit IsIssued
+        datetime2_3 CreatedAtUtc
+        datetime2_3 UpdatedAtUtc
+    }
+
+    StorageCycle {
+        nvarchar36 Id PK
+        nvarchar36 InventoryItemId FK
+        nvarchar36 LocationId FK
+        datetime2_3 StoredAtUtc
+        datetime2_3 IssuedAtUtc "nullable; null means active"
+        nvarchar36 StoredByPersonnelId FK
+        nvarchar36 IssuedByPersonnelId FK "nullable"
+        nvarchar50 LocationCodeSnapshot
+        nvarchar150 LocationNameSnapshot
+        nvarchar50 StoredByPersonnelCodeSnapshot
+        nvarchar150 StoredByPersonnelNameSnapshot
+        nvarchar50 IssuedByPersonnelCodeSnapshot "nullable"
+        nvarchar150 IssuedByPersonnelNameSnapshot "nullable"
+    }
+
+    InventoryMovement {
+        nvarchar36 Id PK
+        nvarchar36 InventoryItemId FK
+        nvarchar36 StorageCycleId FK "nullable for non-lifecycle movements; composite FK with InventoryItemId"
+        nvarchar36 FromLocationId FK "nullable"
+        nvarchar36 ToLocationId FK "nullable"
+        nvarchar36 PerformedByPersonnelId FK
+        nvarchar50 EventType
+        datetime2_3 MovedAtUtc
+        nvarchar64 IdempotencyKey UK "nullable; filtered unique index"
+    }
+
+    StoreLocation {
+        nvarchar36 Id PK
+        nvarchar50 LocationCode UK
+        nvarchar150 LocationName
+        bit IsActive
+    }
+
+    Personnel {
+        nvarchar36 Id PK
+        nvarchar50 PersonnelCode UK
+        nvarchar150 Name
+        bit IsActive
+    }
+
+    AuditEvent {
+        bigint Id PK
+        datetime2_3 OccurredAtUtc
+        nvarchar50 ActionType
+        nvarchar50 EntityName
+        nvarchar50 EntityId "nullable; polymorphic, not FK"
+        nvarchar50 UserName "authenticated operator snapshot; not Personnel FK"
+        nvarcharMax PreviousValue
+        nvarcharMax NewValue
+        uniqueidentifier CorrelationId "nullable"
+    }
+
+    InventoryItem ||--o{ StorageCycle : "has lifecycle cycles"
+    InventoryItem ||--o{ InventoryMovement : "has immutable movements"
+    StorageCycle o|--o{ InventoryMovement : "opened or closed by"
+    StoreLocation ||--o{ InventoryItem : "current or last location"
+    StoreLocation ||--o{ StorageCycle : "location per cycle"
+    StoreLocation o|--o{ InventoryMovement : "from location"
+    StoreLocation o|--o{ InventoryMovement : "to location"
+    Personnel ||--o{ InventoryItem : "original registration"
+    Personnel ||--o{ StorageCycle : "stores asset"
+    Personnel o|--o{ StorageCycle : "issues asset"
+    Personnel ||--o{ InventoryMovement : "performs movement"
+
+%% SQL Server invariant: UNIQUE StorageCycle(InventoryItemId)
+%% WHERE IssuedAtUtc IS NULL; this allows at most one active cycle per item.
+%% SerialNumber and TagNumber remain independently unique on InventoryItem.
+%% StorageCycle also has UNIQUE (Id, InventoryItemId) as the target of the
+%% composite InventoryMovement (StorageCycleId, InventoryItemId) FK.
+%% AuditEvent records are append-only and use EntityName/EntityId without an FK.
+%% AuditEvent.UserName is the authenticated AppUser identity from claims. The
+%% responsible Personnel is separate: FKs on StorageCycle/InventoryMovement and
+%% a responsible-person ID in the lifecycle audit JSON snapshots. No user-person
+%% equivalence or FK is inferred.
+%% No aging counter or total is persisted: floor elapsed 24-hour days per cycle,
+%% then SUM those per-cycle whole-day values for TotalStorageDays.
+%% Filtered unique movement indexes plus an INSERT trigger enforce cycle/event mapping.
+%% Pair completeness (each cycle has an opener and each closed cycle has an issue)
+%% is guaranteed by the lifecycle command transaction and checked by reconciliation,
+%% not by a deferred SQL Server constraint.
