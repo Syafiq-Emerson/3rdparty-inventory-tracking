@@ -5,12 +5,14 @@ import {
   DuplicateConflictError,
   InventoryItem,
   InventoryItemIdentification,
-  InventoryMovement,
   IssueInventoryPayload,
   IssueInventoryResponse,
   PagedResponse,
   Personnel,
   RegisterInventoryPayload,
+  ReturnToStoragePayload,
+  ReturnToStorageResponse,
+  InventoryHistory,
   SignedInUser,
   StoreLocation,
 } from '../types/inventory';
@@ -25,6 +27,8 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 
 const NETWORK_MESSAGE = "Can't reach the server. Check the network connection and try again.";
 const TIMEOUT_MESSAGE = 'The server took too long to respond. Try again in a moment.';
+const CSRF_HEADER_NAME = 'X-CSRF-TOKEN';
+const CSRF_FAILURE_CODE = 'CSRF_VALIDATION_FAILED';
 
 export class ApiError extends Error {
   readonly response: { status: number; data: unknown };
@@ -82,7 +86,56 @@ interface RequestOptions {
   signal?: AbortSignal;
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+interface CsrfTokenResponse {
+  requestToken: string;
+}
+
+let csrfRequestToken: string | null = null;
+let csrfTokenPromise: Promise<string> | null = null;
+let csrfTokenGeneration = 0;
+
+const isSafeMethod = (method: string): boolean =>
+  ['GET', 'HEAD', 'OPTIONS', 'TRACE'].includes(method.toUpperCase());
+
+const isCsrfValidationError = (error: unknown): error is ApiError =>
+  error instanceof ApiError &&
+  error.status === 400 &&
+  isRecord(error.response.data) &&
+  error.response.data.errorCode === CSRF_FAILURE_CODE;
+
+function invalidateCsrfToken(): void {
+  csrfTokenGeneration++;
+  csrfRequestToken = null;
+  csrfTokenPromise = null;
+}
+
+async function getCsrfToken(): Promise<string> {
+  if (csrfRequestToken) return csrfRequestToken;
+  if (!csrfTokenPromise) {
+    const generation = csrfTokenGeneration;
+    const pending = send<CsrfTokenResponse>('/auth/csrf-token')
+      .then((response) => {
+        if (typeof response.requestToken !== 'string' || response.requestToken.length === 0) {
+          throw new ApiError('The server did not provide an anti-forgery token.', 500, response);
+        }
+        if (generation === csrfTokenGeneration) csrfRequestToken = response.requestToken;
+        return response.requestToken;
+      });
+    csrfTokenPromise = pending;
+    try {
+      return await pending;
+    } finally {
+      if (csrfTokenPromise === pending) csrfTokenPromise = null;
+    }
+  }
+  return csrfTokenPromise;
+}
+
+async function send<T>(
+  path: string,
+  options: RequestOptions = {},
+  csrfToken?: string,
+): Promise<T> {
   const { method = 'GET', body, idempotencyKey, timeoutMs = DEFAULT_TIMEOUT_MS, signal } = options;
 
   const controller = new AbortController();
@@ -92,6 +145,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+  if (csrfToken) headers[CSRF_HEADER_NAME] = csrfToken;
 
   let response: Response;
   try {
@@ -119,7 +173,10 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
 
   if (!response.ok) {
-    if (response.status === 401) unauthorizedHandler?.();
+    if (response.status === 401) {
+      invalidateCsrfToken();
+      unauthorizedHandler?.();
+    }
     const message =
       isRecord(data) && typeof data.error === 'string'
         ? data.error
@@ -130,6 +187,29 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return data as T;
 }
 
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const method = options.method ?? 'GET';
+  if (isSafeMethod(method)) return send<T>(path, options);
+
+  const token = await getCsrfToken();
+  try {
+    return await send<T>(path, options, token);
+  } catch (error) {
+    if (!isCsrfValidationError(error)) throw error;
+
+    if (csrfRequestToken === token) invalidateCsrfToken();
+    const refreshedToken = await getCsrfToken();
+    try {
+      return await send<T>(path, options, refreshedToken);
+    } catch (retryError) {
+      if (isCsrfValidationError(retryError) && csrfRequestToken === refreshedToken) {
+        invalidateCsrfToken();
+      }
+      throw retryError;
+    }
+  }
+}
+
 export const isDuplicateConflictError = (value: unknown): value is DuplicateConflictError =>
   isRecord(value) &&
   value.errorCode === 'DUPLICATE_IDENTIFIER' &&
@@ -137,10 +217,20 @@ export const isDuplicateConflictError = (value: unknown): value is DuplicateConf
   (value.conflictingField === 'SerialNumber' || value.conflictingField === 'TagNumber');
 
 export const authApi = {
-  login: (userName: string, password: string): Promise<SignedInUser> =>
-    request<SignedInUser>('/auth/login', { method: 'POST', body: { userName, password } }),
+  async login(userName: string, password: string): Promise<SignedInUser> {
+    invalidateCsrfToken();
+    const user = await request<SignedInUser>('/auth/login', {
+      method: 'POST',
+      body: { userName, password },
+    });
+    invalidateCsrfToken();
+    return user;
+  },
 
-  logout: (): Promise<void> => request<void>('/auth/logout', { method: 'POST' }),
+  async logout(): Promise<void> {
+    await request<void>('/auth/logout', { method: 'POST' });
+    invalidateCsrfToken();
+  },
 
   /** Resolves to null when nobody is signed in, rather than throwing. */
   async me(): Promise<SignedInUser | null> {
@@ -152,11 +242,14 @@ export const authApi = {
     }
   },
 
-  changePassword: (currentPassword: string, newPassword: string): Promise<SignedInUser> =>
-    request<SignedInUser>('/auth/change-password', {
+  async changePassword(currentPassword: string, newPassword: string): Promise<SignedInUser> {
+    const user = await request<SignedInUser>('/auth/change-password', {
       method: 'POST',
       body: { currentPassword, newPassword },
-    }),
+    });
+    invalidateCsrfToken();
+    return user;
+  },
 };
 
 export const systemApi = {
@@ -185,11 +278,24 @@ export const inventoryApi = {
   identifyInventory: (serialNumber: string, tagNumber: string): Promise<InventoryItemIdentification> =>
     request(`/inventory/identify?${new URLSearchParams({ serialNumber, tagNumber }).toString()}`),
 
-  issueInventory: (payload: IssueInventoryPayload): Promise<IssueInventoryResponse> =>
+  issueInventory: (
+    payload: IssueInventoryPayload,
+    idempotencyKey = newIdempotencyKey(),
+  ): Promise<IssueInventoryResponse> =>
     request('/inventory/issue', {
       method: 'POST',
       body: payload,
-      idempotencyKey: newIdempotencyKey(),
+      idempotencyKey,
+    }),
+
+  returnToStorage: (
+    payload: ReturnToStoragePayload,
+    idempotencyKey = newIdempotencyKey(),
+  ): Promise<ReturnToStorageResponse> =>
+    request('/inventory/return-to-storage', {
+      method: 'POST',
+      body: payload,
+      idempotencyKey,
     }),
 
   searchInventory: (query: string, locationId?: string): Promise<PagedResponse<InventoryItem>> => {
@@ -214,7 +320,7 @@ export const inventoryApi = {
     }
   },
 
-  getInventoryHistory: (itemId: string): Promise<InventoryMovement[]> =>
+  getInventoryHistory: (itemId: string): Promise<InventoryHistory> =>
     request(`/inventory/${encodeURIComponent(itemId)}/history`),
 
   getLocations: (activeOnly = false): Promise<StoreLocation[]> =>

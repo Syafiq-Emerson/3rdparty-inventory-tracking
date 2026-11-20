@@ -1,9 +1,12 @@
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using IndustrialInventory.Api.Data;
+using IndustrialInventory.Api.Models;
 using IndustrialInventory.Api.Services.Auth;
 using IndustrialInventory.Api.Services.Deploy;
+using IndustrialInventory.Api.Services.Security;
 using IndustrialInventory.Api.Services.Shared;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.RateLimiting;
@@ -28,8 +31,14 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<AuditContext>();
 builder.Services.AddScoped<AuditWriter>();
 builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<IAppUserAccountLookup, EfAppUserAccountLookup>();
+builder.Services.AddScoped<CookiePrincipalValidator>();
+builder.Services.AddScoped<AppCookieAuthenticationEvents>();
+builder.Services.AddScoped<AntiforgeryAuthorizationFilter>();
 builder.Services.AddSingleton<IdempotencyGate>();
 builder.Services.AddSingleton<DeployNoticeService>();
+builder.Services.AddSingleton(new ExactOriginAllowlist(
+    builder.Configuration.GetSection("Security:AllowedOrigins").Get<string[]>() ?? []));
 
 builder.Services.AddDbContext<InventoryDbContext>(options =>
 {
@@ -40,7 +49,17 @@ builder.Services.AddDbContext<InventoryDbContext>(options =>
     });
 });
 
-builder.Services.AddControllers()
+builder.Services.AddAntiforgery(options =>
+{
+    options.HeaderName = "X-CSRF-TOKEN";
+    options.Cookie.Name = "IndustrialInventory.Antiforgery";
+    options.Cookie.HttpOnly = true;
+    options.Cookie.SameSite = SameSiteMode.Strict;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+});
+
+builder.Services.AddControllers(options =>
+        options.Filters.AddService<AntiforgeryAuthorizationFilter>())
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 builder.Services.AddProblemDetails();
@@ -81,21 +100,10 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
         options.SlidingExpiration = true;
         options.ExpireTimeSpan = TimeSpan.FromHours(12);
-
-        // An API answers with a status code, never a redirect to a sign-in page.
-        options.Events.OnRedirectToLogin = context =>
-        {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            return context.Response.WriteAsJsonAsync(new { error = "Sign in to continue." });
-        };
-        options.Events.OnRedirectToAccessDenied = context =>
-        {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            return context.Response.WriteAsJsonAsync(new { error = "Your account does not have access to this." });
-        };
+        options.EventsType = typeof(AppCookieAuthenticationEvents);
     });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(AuthorizationPolicies.Configure);
 
 // Vite proxies /api in development, so calls are same-origin and need no CORS policy.
 if (builder.Environment.IsDevelopment())
@@ -156,6 +164,7 @@ if (app.Environment.IsDevelopment())
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseMiddleware<ExactOriginMiddleware>();
 
 app.MapControllers();
 

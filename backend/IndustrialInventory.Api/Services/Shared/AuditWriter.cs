@@ -24,11 +24,12 @@ public sealed class AuditWriter(InventoryDbContext db, AuditContext context, Tim
         object? newValue = null,
         string? referenceNo = null,
         string? remarks = null,
-        string? userNameOverride = null)
+        string? userNameOverride = null,
+        DateTime? occurredAtUtc = null)
     {
         db.AuditEvents.Add(new AuditEvent
         {
-            OccurredAtUtc = timeProvider.GetUtcNow().UtcDateTime,
+            OccurredAtUtc = occurredAtUtc ?? timeProvider.GetUtcNow().UtcDateTime,
             ActionType = actionType,
             EntityName = entityName,
             EntityId = entityId,

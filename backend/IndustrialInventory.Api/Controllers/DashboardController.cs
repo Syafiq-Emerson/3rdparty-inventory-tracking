@@ -9,7 +9,7 @@ namespace IndustrialInventory.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public sealed class DashboardController(InventoryDbContext db) : ControllerBase
+public sealed class DashboardController(InventoryDbContext db, TimeProvider timeProvider) : ControllerBase
 {
     private const int RecentItemCount = 6;
 
@@ -24,6 +24,8 @@ public sealed class DashboardController(InventoryDbContext db) : ControllerBase
         var activePersonnelCount = await db.Personnel.CountAsync(p => p.IsActive, ct);
         var locations = await LocationCountsQuery(db).ToListAsync(ct);
         var recentItems = await RecentItemsQuery(db).ToListAsync(ct);
+        var enrichedRecentItems = await InventoryController.WithCurrentAgingAsync(
+            db, recentItems, timeProvider.GetUtcNow().UtcDateTime, ct);
 
         return Ok(new DashboardSummaryResponse
         {
@@ -33,7 +35,7 @@ public sealed class DashboardController(InventoryDbContext db) : ControllerBase
             ActiveStoreLocationsCount = activeLocationsCount,
             ActivePersonnelCount = activePersonnelCount,
             InventoryByStoreLocation = locations,
-            RecentlyRegisteredInventory = recentItems
+            RecentlyRegisteredInventory = enrichedRecentItems
         });
     }
 

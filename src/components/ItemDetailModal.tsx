@@ -20,7 +20,9 @@ export const ItemDetailModal: React.FC<Props> = ({ itemId, onClose }) =>
 const ItemDetailDialog: React.FC<{ itemId: string; onClose: () => void }> = ({ itemId, onClose }) => {
   const { data, loading, error } = useAsync(loadItem, itemId, 'Failed to load item specifications.');
   const item = data?.item ?? null;
-  const history = data?.history ?? [];
+  const history = data?.history ?? null;
+  const storageCycles = history?.storageCycles ?? [];
+  const movements = history?.movements ?? [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
@@ -121,6 +123,57 @@ const ItemDetailDialog: React.FC<{ itemId: string; onClose: () => void }> = ({ i
                 </div>
               </div>
 
+              {/* Storage-cycle history */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-slate-500" /> Storage Cycles
+                  </h4>
+                  <span className="text-xs text-slate-400 font-mono">
+                    {storageCycles.length} Cycle{storageCycles.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+
+                <div className="border border-slate-200 rounded divide-y divide-slate-100 overflow-hidden text-xs">
+                  {storageCycles.length === 0 ? (
+                    <div className="p-4 text-center text-slate-400">No storage cycles recorded.</div>
+                  ) : (
+                    storageCycles.map((cycle) => (
+                      <div key={cycle.id} className="p-3 bg-white">
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <div>
+                            <div className="font-semibold text-slate-900">
+                              {cycle.locationNameSnapshot}{' '}
+                              <span className="font-mono text-slate-500">[{cycle.locationCodeSnapshot}]</span>
+                            </div>
+                            <div className="text-slate-500">
+                              Stored {new Date(cycle.storedAtUtc).toLocaleString()}
+                              {cycle.issuedAtUtc ? ` · Issued ${new Date(cycle.issuedAtUtc).toLocaleString()}` : ''}
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className={`rounded px-2 py-1 font-semibold ${cycle.isActive ? 'bg-emerald-100 text-emerald-900' : 'bg-slate-100 text-slate-700'}`}>
+                              {cycle.isActive ? 'Active' : 'Completed'}
+                            </span>
+                            <div className="mt-1 text-slate-500">{cycle.durationDays} day{cycle.durationDays === 1 ? '' : 's'}</div>
+                          </div>
+                        </div>
+                        <div className="text-slate-500">
+                          Stored by <span className="text-slate-700">{cycle.storedByPersonnelNameSnapshot}</span>
+                          {cycle.issuedByPersonnelNameSnapshot && (
+                            <> · Issued by <span className="text-slate-700">{cycle.issuedByPersonnelNameSnapshot}</span></>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                  <div className="flex justify-between p-3 bg-slate-50 font-semibold text-slate-700">
+                    <span>Total storage days</span>
+                    <span>{history?.totalStorageDays ?? 0}</span>
+                  </div>
+                </div>
+              </div>
+
               {/* Movement & Custody History (inventory_movements) */}
               <div>
                 <div className="flex items-center justify-between mb-3">
@@ -128,17 +181,17 @@ const ItemDetailDialog: React.FC<{ itemId: string; onClose: () => void }> = ({ i
                     <Clock className="w-4 h-4 text-slate-500" /> Chain of Custody & Location Ledger
                   </h4>
                   <span className="text-xs text-slate-400 font-mono">
-                    {history.length} Event{history.length === 1 ? '' : 's'}
+                    {movements.length} Event{movements.length === 1 ? '' : 's'}
                   </span>
                 </div>
 
                 <div className="border border-slate-200 rounded divide-y divide-slate-100 overflow-hidden text-xs">
-                  {history.length === 0 ? (
+                  {movements.length === 0 ? (
                     <div className="p-4 text-center text-slate-400">
                       No movement history recorded.
                     </div>
                   ) : (
-                    history.map((movement) => (
+                    movements.map((movement) => (
                       <div key={movement.id} className="p-3 bg-white hover:bg-slate-50 transition-colors">
                         <div className="flex items-center justify-between mb-1.5">
                           <span className="font-semibold text-slate-900 flex items-center gap-1.5">
@@ -146,7 +199,9 @@ const ItemDetailDialog: React.FC<{ itemId: string; onClose: () => void }> = ({ i
                               ? <span className="text-blue-800 font-medium">Initial Registration & Intake</span>
                               : movement.eventType === 'ISSUE_FOR_PACKING'
                                 ? <span className="text-amber-800 font-medium">Issued for Packing</span>
-                                : <span>Location Relocation</span>}
+                                : movement.eventType === 'RETURNED_TO_STORAGE'
+                                  ? <span className="text-emerald-800 font-medium">Returned to Storage</span>
+                                  : <span>Location Relocation</span>}
                           </span>
                           <span className="text-slate-500 font-mono tabular-nums">
                             {new Date(movement.movedAt).toLocaleString()}
