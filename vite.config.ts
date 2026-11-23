@@ -7,8 +7,8 @@ import { defineConfig } from 'vite';
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
-// Where the ASP.NET Core API listens in development. Kestrel's default is 5000.
-const apiTarget = process.env.VITE_API_TARGET ?? 'http://localhost:5000';
+// Where the ASP.NET Core API listens in development (Kestrel's default).
+const apiTarget = 'http://localhost:5000';
 
 export default defineConfig(() => {
   return {

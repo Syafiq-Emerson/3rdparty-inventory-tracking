@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      // Debug the API on its own. Swagger opens once Kestrel reports its address.
+      // Starts the API and opens the app on :3000 once Kestrel is listening (after migrations).
       "name": "Server",
       "type": "coreclr",
       "request": "launch",
@@ -11,18 +11,23 @@
       "cwd": "${workspaceFolder}/backend/IndustrialInventory.Api",
       "stopAtEntry": false,
       "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
       "env": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
       "serverReadyAction": {
         "action": "openExternally",
-        "pattern": "\\bNow listening on:\\s+(https?://\\S+)",
-        "uriFormat": "%s/swagger"
+        "pattern": "\\bNow listening on:\\s+https?://\\S+",
+        "uriFormat": "http://localhost:3000"
+      },
+      "presentation": {
+        "group": "2-single",
+        "order": 1
       }
     },
     {
-      // Starts the API without opening a browser, for use inside the compound below.
-      "name": "Server (no browser)",
+      // Debug the API on its own. Swagger opens once Kestrel reports its address.
+      "name": "Server (Swagger)",
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "build",
@@ -30,8 +35,18 @@
       "cwd": "${workspaceFolder}/backend/IndustrialInventory.Api",
       "stopAtEntry": false,
       "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
       "env": {
         "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "\\bNow listening on:\\s+(https?://\\S+)",
+        "uriFormat": "%s/swagger"
+      },
+      "presentation": {
+        "group": "2-single",
+        "order": 2
       }
     },
     {
@@ -43,12 +58,11 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
       "skipFiles": ["<node_internals>/**"],
-      "serverReadyAction": {
-        "action": "openExternally",
-        // Vite colours the port in a terminal, so the URL is fixed rather than captured.
-        "pattern": "Local:",
-        "uriFormat": "http://localhost:3000"
+      "presentation": {
+        "group": "2-single",
+        "order": 3
       }
     },
     {
@@ -56,16 +70,21 @@
       "name": "Attach to Server",
       "type": "coreclr",
       "request": "attach",
-      "processName": "IndustrialInventory.Api"
+      "processName": "IndustrialInventory.Api",
+      "presentation": {
+        "group": "2-single",
+        "order": 4
+      }
     }
   ],
   "compounds": [
     {
       // The usual way to run the app: API + client together, browser opens on :3000.
       "name": "Server + Vite",
-      "configurations": ["Server (no browser)", "Vite"],
+      "configurations": ["Server", "Vite"],
       "stopAll": true,
       "presentation": {
+        "group": "1-app",
         "order": 1
       }
     }

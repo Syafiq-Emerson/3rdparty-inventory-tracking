@@ -103,11 +103,14 @@ uses `dotnet user-secrets`.
 | Environment variable | Purpose | Default |
 |---|---|---|
 | `ConnectionStrings__InventoryConnection` | SQL Server connection string. **Required**; the app will not start without it. | *(empty)* |
-| `ASPNETCORE_ENVIRONMENT` | `Development` enables Swagger and user-secrets. | `Production` |
-| `VITE_API_TARGET` | Dev only: where Vite proxies `/api`. | `http://localhost:5000` |
-| `Security__AllowedOrigins__0` | Exact browser origin allowed for unsafe API requests. Required in production; add `__1`, etc. for additional origins. | Development config allows `http://localhost:3000` and `http://localhost:5000` |
 
-Production must set each real browser origin as an exact scheme/host/port value through machine-level environment variables. No production origin is checked into the repository. Unsafe API requests without a single matching `Origin` are rejected.
+This is the only environment variable the app needs. IIS runs it as `Production` by default, and the VS
+Code launch configurations set `Development` for local runs.
+
+Unsafe API requests (POST, PUT, DELETE) must carry a single `Origin` that matches the address the request
+was sent to (scheme, host and port), so production works on any host name or binding without
+configuration. `Security:AllowedOrigins` in `appsettings.Development.json` adds the Vite dev server
+(`http://localhost:3000`), whose proxy forwards requests to the API on `:5000`.
 
 Origin validation does not provide transport encryption. The existing cookies use `SameAsRequest`, and this application does not configure forwarded-header processing. A TLS-terminating reverse proxy must be configured to pass the external HTTPS scheme through trusted forwarded headers before authentication; trust only the known proxy. This change does not add HTTPS redirection, HSTS, or proxy configuration.
 
@@ -159,8 +162,10 @@ npm run build
 dotnet test IndustrialInventory.slnx
 ```
 
-Or use the VS Code launch configuration **Server + Vite** (F5). It opens one terminal tab for the API and
-one for Vite. Run `npm ci` once after cloning, or F5 can't start Vite.
+Or use the VS Code launch configuration **Server + Vite** (F5). F5 runs whatever is selected in the Run and
+Debug dropdown, so pick **Server + Vite** there once. It opens one terminal tab for the API (on Kestrel's
+default `http://localhost:5000`) and one for Vite, then opens `http://localhost:3000` once the API is listening.
+Run `npm ci` once after cloning, or F5 can't start Vite.
 
 Schema changes: `dotnet ef migrations add <Name>` from `backend\IndustrialInventory.Api`, then `dotnet run`.
 To start over locally: `dotnet ef database drop --force`, `dotnet run`, `dotnet run -- set-admin-password`.
@@ -185,6 +190,9 @@ To start over locally: `dotnet ef database drop --force`, `dotnet run`, `dotnet 
 
 ### One-time server setup
 
+- The IIS site's physical path is the `PublishUrl` folder in `DeployIIS.pubxml`
+  (`\\mynilasdmfgdb01\Automation\IndustrialInventory`). The Windows account that publishes needs write
+  access to that folder, including `App_Data`, for the countdown notice and `app_offline.htm`.
 - ASP.NET Core 10 Hosting Bundle; event-log source `IndustrialInventory.Api` registered (or run the first
   start as an admin).
 - Site at the root of its binding, since the client uses base path `/`. HTTP is fine for everything except

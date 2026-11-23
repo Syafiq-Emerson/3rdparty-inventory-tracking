@@ -37,7 +37,7 @@
     },
     {
       "label": "publish",
-      "detail": "Builds the client and deploys to IIS: countdown, app_offline.htm, copy, back online.",
+      "detail": "Deploys to IIS at \\\\mynilasdmfgdb01\\Automation\\IndustrialInventory (PublishUrl in DeployIIS.pubxml): countdown, app_offline.htm, copy, back online.",
       "command": "dotnet",
       "type": "process",
       "args": [
@@ -46,9 +46,16 @@
         "-c",
         "Release",
         "-p:PublishProfile=DeployIIS",
+        "-tl:off",
         "/property:GenerateFullPaths=true",
         "/consoleloggerparameters:NoSummary"
       ],
+      "presentation": {
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "clear": true
+      },
       "problemMatcher": "$msCompile"
     },
     {

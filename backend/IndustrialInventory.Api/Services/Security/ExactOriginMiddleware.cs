@@ -3,6 +3,10 @@ using Microsoft.Extensions.Primitives;
 
 namespace IndustrialInventory.Api.Services.Security;
 
+/// <summary>
+/// Unsafe API requests must come from the app's own origin (the scheme and host the request was sent to),
+/// or from one of the extra origins in Security:AllowedOrigins (development: the Vite dev server).
+/// </summary>
 public sealed class ExactOriginAllowlist
 {
     private readonly HashSet<Origin> origins;
@@ -22,15 +26,9 @@ public sealed class ExactOriginAllowlist
 
             origins.Add(origin);
         }
-
-        if (origins.Count == 0)
-        {
-            throw new InvalidOperationException(
-                "At least one exact origin must be configured in Security:AllowedOrigins.");
-        }
     }
 
-    public bool Allows(StringValues originHeaders)
+    public bool Allows(StringValues originHeaders, HttpRequest request)
     {
         if (originHeaders.Count != 1 ||
             string.IsNullOrWhiteSpace(originHeaders[0]) ||
@@ -39,7 +37,15 @@ public sealed class ExactOriginAllowlist
             return false;
         }
 
-        return origins.Contains(origin);
+        return origins.Contains(origin) ||
+            (TryGetRequestOrigin(request, out var own) && own == origin);
+    }
+
+    private static bool TryGetRequestOrigin(HttpRequest request, out Origin origin)
+    {
+        origin = default;
+        return request.Host.HasValue &&
+            TryParseOrigin($"{request.Scheme}://{request.Host.Value}", out origin);
     }
 
     private static bool TryParseOrigin(string? value, out Origin origin)
@@ -74,7 +80,7 @@ public sealed class ExactOriginMiddleware(RequestDelegate next, ExactOriginAllow
             return;
         }
 
-        if (!allowlist.Allows(context.Request.Headers["Origin"]))
+        if (!allowlist.Allows(context.Request.Headers["Origin"], context.Request))
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             await context.Response.WriteAsJsonAsync(new

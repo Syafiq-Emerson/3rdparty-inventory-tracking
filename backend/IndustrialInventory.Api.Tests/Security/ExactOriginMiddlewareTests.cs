@@ -88,19 +88,54 @@ public class ExactOriginMiddlewareTests
         Assert.Equal(StatusCodes.Status200OK, nonApiWrite.Response.StatusCode);
     }
 
-    [Fact]
-    public void Empty_or_invalid_allowlist_is_rejected_at_startup()
+    [Theory]
+    [InlineData("http", "inventory-server:8080", "http://inventory-server:8080")]
+    [InlineData("http", "INVENTORY-SERVER", "http://inventory-server")]
+    [InlineData("https", "inventory.example.test", "https://inventory.example.test:443")]
+    public async Task Same_origin_is_allowed_without_configuration(string scheme, string host, string origin)
     {
-        Assert.Throws<InvalidOperationException>(() => new ExactOriginAllowlist([]));
+        var called = false;
+        var context = CreateContext("/api/inventory", "POST", origin, scheme, host);
+        var middleware = new ExactOriginMiddleware(_ =>
+        {
+            called = true;
+            return Task.CompletedTask;
+        }, new ExactOriginAllowlist([]));
+
+        await middleware.InvokeAsync(context);
+
+        Assert.True(called);
+    }
+
+    [Theory]
+    [InlineData("http://evil.example.test")]
+    [InlineData("http://inventory-server:8081")]
+    [InlineData("https://inventory-server:8080")]
+    public async Task Other_origin_is_rejected_without_configuration(string origin)
+    {
+        var context = CreateContext("/api/inventory", "POST", origin, "http", "inventory-server:8080");
+        var middleware = new ExactOriginMiddleware(_ => Task.CompletedTask, new ExactOriginAllowlist([]));
+
+        await middleware.InvokeAsync(context);
+
+        Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);
+    }
+
+    [Fact]
+    public void Invalid_allowlist_entries_are_rejected_at_startup()
+    {
         Assert.Throws<InvalidOperationException>(() => new ExactOriginAllowlist(["https://example.test/path"]));
         Assert.Throws<InvalidOperationException>(() => new ExactOriginAllowlist(["*"]));
     }
 
-    private static DefaultHttpContext CreateContext(string path, string method, string? origin)
+    private static DefaultHttpContext CreateContext(
+        string path, string method, string? origin, string scheme = "http", string host = "api.internal:5000")
     {
         var context = new DefaultHttpContext();
         context.Request.Path = path;
         context.Request.Method = method;
+        context.Request.Scheme = scheme;
+        context.Request.Host = new HostString(host);
         context.Response.Body = new MemoryStream();
         if (origin is not null) context.Request.Headers["Origin"] = origin;
         return context;
